@@ -1,0 +1,46 @@
+# Node / React
+node_modules/
+build/
+dist/
+.env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Editor / IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python / Streamlit
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.egg-info/
+.venv/
+venv/
+.env/
+streamlit/.streamlit/secrets.toml
+
+# Cache
+.cache/
+.temp/
+*.tmp
+
+# Exportações e arquivos gerados
+/exportacoes/
+*.xlsx
+*.pdf

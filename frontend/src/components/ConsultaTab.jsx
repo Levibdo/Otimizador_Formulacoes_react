@@ -11,7 +11,6 @@ export default function ConsultaTab() {
     async function load() {
       const d = await getMetaData();
       setMps(d.materias_primas || []);
-      // initialize form
       const initial = {};
       (d.materias_primas || []).forEach((mp) => (initial[mp] = 0));
       setForm(initial);
@@ -19,8 +18,22 @@ export default function ConsultaTab() {
     load();
   }, []);
 
+  // Atualiza matérias-primas com limite de 100%
   function updateMp(mp, v) {
-    setForm((prev) => ({ ...prev, [mp]: Number(v) }));
+    const novoValor = Number(v);
+    setForm((prev) => {
+      const totalAtual = Object.entries(prev)
+        .filter(([k]) => k !== mp)
+        .reduce((s, [, val]) => s + val, 0);
+      const novoTotal = totalAtual + novoValor;
+
+      if (novoTotal > 100) {
+        alert("❗ A soma das matérias-primas não pode ultrapassar 100%");
+        return prev;
+      }
+
+      return { ...prev, [mp]: novoValor };
+    });
   }
 
   async function handleConsultar() {
@@ -33,6 +46,14 @@ export default function ConsultaTab() {
     }
   }
 
+  // Soma total das MPs
+  const totalPercentual = Object.values(form).reduce((a, b) => a + b, 0);
+
+  // Dados filtrados para o gráfico
+  const dadosGrafico = Object.keys(form)
+    .map((k) => ({ "Matéria-Prima": k, "Peso (%)": form[k] }))
+    .filter((d) => d["Peso (%)"] > 0);
+
   return (
     <div className="max-w-6xl mx-auto space-y-4">
       <div className="bg-white p-4 rounded shadow">
@@ -40,8 +61,23 @@ export default function ConsultaTab() {
         <p className="text-sm text-gray-600">
           Insira as porcentagens da fórmula (somar 100%).
         </p>
+        <div className="mt-2 text-sm">
+          Total atual:{" "}
+          <strong
+            className={
+              totalPercentual > 100
+                ? "text-red-600"
+                : totalPercentual === 100
+                ? "text-green-600"
+                : "text-blue-600"
+            }
+          >
+            {totalPercentual.toFixed(2)}%
+          </strong>
+        </div>
       </div>
 
+      {/* Entradas das matérias-primas */}
       <div className="bg-white p-4 rounded shadow grid grid-cols-3 gap-3">
         {mps.map((mp) => (
           <div key={mp} className="space-y-1">
@@ -59,9 +95,10 @@ export default function ConsultaTab() {
         ))}
       </div>
 
+      {/* Botão de consulta */}
       <div className="flex gap-3">
         <button
-          className="bg-blue-600 text-white px-4 py-2 rounded"
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
           onClick={handleConsultar}
         >
           🔍 Consultar Composição
@@ -71,32 +108,41 @@ export default function ConsultaTab() {
         </div>
       </div>
 
+      {/* Exibição dos resultados */}
       {resultado && (
         <div className="bg-white p-4 rounded shadow">
-          <div className="flex justify-between items-center">
-            <h3 className="font-semibold">Resultado</h3>
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="font-semibold">📊 Resultado</h3>
             <div className="text-sm">
-              Custo Total:{" "}
-              <strong>
+              💰 Custo Total:{" "}
+              <strong className="text-green-700">
                 R$ {Number(resultado.custo_total || 0).toFixed(4)}
               </strong>
             </div>
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-4">
-            <div>
-              <h4 className="font-medium mb-2">Composição Nutricional</h4>
+            {/* Tabela Nutricional */}
+            <div className="overflow-y-auto max-h-[400px] border rounded-lg shadow-sm">
+              <h4 className="font-medium mb-2 p-2 bg-gray-50 rounded-t-lg">
+                Composição Nutricional
+              </h4>
               {resultado.nutrientes && Array.isArray(resultado.nutrientes) ? (
-                <table className="w-full text-sm border">
-                  <thead className="bg-gray-50">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-100 sticky top-0">
                     <tr>
-                      <th className="p-2 text-left">Nutriente</th>
-                      <th className="p-2 text-left">Valor Obtido</th>
+                      <th className="p-2 text-left w-2/3">Nutriente</th>
+                      <th className="p-2 text-left w-1/3">Valor Obtido</th>
                     </tr>
                   </thead>
                   <tbody>
                     {resultado.nutrientes.map((n, i) => (
-                      <tr key={i} className="border-t">
+                      <tr
+                        key={i}
+                        className={`border-t hover:bg-gray-50 ${
+                          i % 2 === 0 ? "bg-white" : "bg-gray-50"
+                        }`}
+                      >
                         <td className="p-2">{n.Nutriente}</td>
                         <td className="p-2">
                           {Number(n["Valor Obtido"] || 0).toFixed(4)}
@@ -106,19 +152,22 @@ export default function ConsultaTab() {
                   </tbody>
                 </table>
               ) : (
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-500 p-2">
                   Nenhum dado nutricional disponível.
                 </p>
               )}
             </div>
 
-            <div>
-              <PieSection
-                data={Object.keys(form)
-                  .map((k) => ({ "Matéria-Prima": k, "Peso (%)": form[k] }))
-                  .filter((d) => d["Peso (%)"] > 0)}
-                title="Distribuição (entrada)"
-              />
+            {/* Gráfico de pizza */}
+            <div className="flex flex-col justify-center items-center">
+              <h4 className="font-medium mb-2">Distribuição (entrada)</h4>
+              {dadosGrafico.length > 0 ? (
+                <PieSection data={dadosGrafico} title="" />
+              ) : (
+                <p className="text-sm text-gray-500 mt-4">
+                  Nenhuma matéria-prima informada.
+                </p>
+              )}
             </div>
           </div>
         </div>

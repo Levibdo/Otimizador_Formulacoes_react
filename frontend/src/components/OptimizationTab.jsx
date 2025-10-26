@@ -134,7 +134,7 @@ export default function OptimizationTab() {
           </div>
 
           {restricoes.map((r, i) => (
-            <div key={r.id} className="flex gap-2 items-center mb-2">
+            <div key={r.id} className="flex flex-wrap gap-2 items-center bg-white p-2 rounded border border-gray-200">
               <select
                 value={r.item}
                 onChange={(e) => updateRestriction(i, "item", e.target.value)}
