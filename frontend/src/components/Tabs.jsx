@@ -3,6 +3,7 @@ export default function Tabs({ tab, setTab }) {
     { id: "otimizacao", label: "📊 Otimização" },
     { id: "consulta", label: "🔍 Consulta" },
     { id: "resultados", label: "📈 Resultados" },
+    { id: "materias", label: "🧱 Matérias-Primas" }
   ];
 
   return (

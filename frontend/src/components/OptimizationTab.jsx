@@ -1,19 +1,49 @@
 import React, { useEffect, useState } from "react";
 import { getMetaData, otimizarFormula } from "../api/api";
 
-export default function OptimizationTab() {
+export default function OptimizationTab({ setTab }) {
   const [mps, setMps] = useState([]);
   const [nutrientes, setNutrientes] = useState([]);
-  const [restricoes, setRestricoes] = useState([]); // {id, item, tipo, valor, tipo_item}
+  const [dadosMps, setDadosMps] = useState({});
+  const [restricoes, setRestricoes] = useState([]);
   const [custoMax, setCustoMax] = useState(9999);
   const [statusMsg, setStatusMsg] = useState(null);
 
+  // ==========================================================
+  // 🔹 Carregar MPs do backend + MPs do localStorage
+  // ==========================================================
   useEffect(() => {
     async function load() {
       try {
         const data = await getMetaData();
-        setMps(data.materias_primas || []);
-        setNutrientes(data.nutrientes || []);
+
+        // Dados do backend
+        let backendMPs = data.materias_primas || [];
+        let backendNutrientes = data.nutrientes || [];
+        let backendMatriz = data.matriz || {};
+
+        // MPs salvas localmente
+        const localMPs = JSON.parse(localStorage.getItem("materias_primas")) || [];
+
+        // 🔄 Combinar MPs
+        localMPs.forEach((mp) => {
+          // Adiciona se ainda não existir
+          if (!backendMPs.includes(mp.nome)) {
+            backendMPs.push(mp.nome);
+          }
+
+          // Adiciona/atualiza dados nutricionais e custo
+          backendMatriz[mp.nome] = {
+            Carboidratos: parseFloat(mp.carboidratos) || 0,
+            Proteínas: parseFloat(mp.proteinas) || 0,
+            "Gorduras Totais": parseFloat(mp.gorduras) || 0,
+            Custo: parseFloat(mp.custo) || 0,
+          };
+        });
+
+        setMps(backendMPs);
+        setNutrientes(backendNutrientes);
+        setDadosMps(backendMatriz);
       } catch (err) {
         console.error("Erro ao carregar metadados:", err);
         setStatusMsg("Erro ao carregar metadados.");
@@ -22,17 +52,22 @@ export default function OptimizationTab() {
     load();
   }, []);
 
+  // ==========================================================
+  // 🧩 Gerenciar restrições
+  // ==========================================================
   function addMpRestriction() {
+    if (mps.length === 0) return;
     setRestricoes((r) => [
       ...r,
-      { id: Date.now(), item: mps[0] || "", tipo: "<=", valor: 0, tipo_item: "MP" },
+      { id: Date.now(), item: mps[0], tipo: "<=", valor: 0, tipo_item: "MP" },
     ]);
   }
 
   function addNutrRestriction() {
+    if (nutrientes.length === 0) return;
     setRestricoes((r) => [
       ...r,
-      { id: Date.now(), item: nutrientes[0] || "", tipo: ">=", valor: 0, tipo_item: "Nutriente" },
+      { id: Date.now(), item: nutrientes[0], tipo: ">=", valor: 0, tipo_item: "Nutriente" },
     ]);
   }
 
@@ -46,17 +81,20 @@ export default function OptimizationTab() {
     setRestricoes((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  // 🔧 NOVA FUNÇÃO handleOptimize CORRIGIDA
+  // ==========================================================
+  // 🚀 Enviar para o backend e otimizar
+  // ==========================================================
   async function handleOptimize() {
-    const metas = {}; // nutriente -> [min, max]
-    const limites_mp = {}; // mp -> [min, max]
+    const metas = {};
+    const limites_mp = {};
 
     restricoes.forEach((r) => {
       if (r.tipo_item === "Nutriente") {
         if (!metas[r.item]) metas[r.item] = [null, null];
         if (r.tipo === ">=") metas[r.item][0] = parseFloat(r.valor);
         if (r.tipo === "<=") metas[r.item][1] = parseFloat(r.valor);
-        if (r.tipo === "=") metas[r.item] = [parseFloat(r.valor), parseFloat(r.valor)];
+        if (r.tipo === "=")
+          metas[r.item] = [parseFloat(r.valor), parseFloat(r.valor)];
       } else if (r.tipo_item === "MP") {
         if (!limites_mp[r.item]) limites_mp[r.item] = [null, null];
         if (r.tipo === ">=") limites_mp[r.item][0] = parseFloat(r.valor);
@@ -66,10 +104,14 @@ export default function OptimizationTab() {
       }
     });
 
-    // 🔄 Atenção: o backend espera "restricoes" no payload
-    const payload = { metas, restricoes: limites_mp, custo_max: custoMax };
+    const payload = {
+      metas,
+      restricoes: limites_mp,
+      custo_max: custoMax,
+      matriz: dadosMps, // 🔹 inclui MPs do localStorage também
+    };
 
-    console.log("🔍 Enviando payload para backend:", payload);
+    console.log("🔍 Enviando payload completo:", payload);
 
     setStatusMsg("Executando otimização...");
     try {
@@ -83,12 +125,16 @@ export default function OptimizationTab() {
       );
 
       localStorage.setItem("ultima_otimizacao", JSON.stringify(res));
+      setTab("resultados");
     } catch (err) {
       console.error("Erro na otimização:", err);
       setStatusMsg("Erro na otimização. Veja o console.");
     }
   }
 
+  // ==========================================================
+  // 🧱 Interface
+  // ==========================================================
   return (
     <div className="max-w-6xl mx-auto space-y-4">
       <div className="bg-white p-4 rounded shadow flex items-center justify-between">
@@ -117,7 +163,7 @@ export default function OptimizationTab() {
 
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-white p-4 rounded shadow">
-          <h3 className="font-medium mb-3">Restrições (dinâmicas)</h3>
+          <h3 className="font-medium mb-3">Restrições</h3>
           <div className="flex gap-2 mb-3">
             <button
               onClick={addMpRestriction}
@@ -134,7 +180,10 @@ export default function OptimizationTab() {
           </div>
 
           {restricoes.map((r, i) => (
-            <div key={r.id} className="flex flex-wrap gap-2 items-center bg-white p-2 rounded border border-gray-200">
+            <div
+              key={r.id}
+              className="flex flex-wrap gap-2 items-center bg-white p-2 rounded border border-gray-200"
+            >
               <select
                 value={r.item}
                 onChange={(e) => updateRestriction(i, "item", e.target.value)}
@@ -173,9 +222,6 @@ export default function OptimizationTab() {
 
         <div className="bg-white p-4 rounded shadow">
           <h3 className="font-medium mb-3">Resumo / Execução</h3>
-          <p className="text-sm text-gray-600 mb-3">
-            Resumo das restrições adicionadas:
-          </p>
           <ul className="text-sm space-y-1">
             {restricoes.map((r, idx) => (
               <li key={idx}>
@@ -186,7 +232,8 @@ export default function OptimizationTab() {
           <div className="mt-4">
             <p className="text-sm">{statusMsg}</p>
             <p className="text-xs text-gray-500 mt-2">
-              Após a otimização, acesse a aba <strong>Resultados</strong>.
+              Após a otimização, você será levado automaticamente à aba{" "}
+              <strong>Resultados</strong>.
             </p>
           </div>
         </div>

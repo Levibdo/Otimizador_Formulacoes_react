@@ -3,3 +3,6 @@ uvicorn
 pandas
 pulp
 openpyxl
+pymongo
+
+python-multipart
