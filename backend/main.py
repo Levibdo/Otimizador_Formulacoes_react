@@ -9,6 +9,7 @@ from bson import ObjectId
 from dotenv import load_dotenv
 import os
 import io
+from fastapi.responses import StreamingResponse
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -168,26 +169,83 @@ async def importar_materias_primas(
     try:
         content = await file.read()
 
-        # Detecta o formato e carrega com pandas
+        # Detectar formato do arquivo
         if file.filename.endswith(".xlsx"):
-            df = pd.read_excel(io.BytesIO(content))
+            df_raw = pd.read_excel(io.BytesIO(content), header=None)
         elif file.filename.endswith(".csv"):
-            df = pd.read_csv(io.BytesIO(content))
+            df_raw = pd.read_csv(io.BytesIO(content), header=None)
         else:
             raise HTTPException(status_code=400, detail="Formato não suportado. Use .xlsx ou .csv")
 
-        # Adiciona o ID do usuário
+        # Detectar automaticamente se a primeira linha contém MPs
+        # (isto é, a primeira célula A1 é 'Custo' ou algo semelhante)
+        primeira_celula = str(df_raw.iat[0, 0]).strip().lower()
+        if "custo" in primeira_celula:
+            # formato correto já verticalizado
+            df = df_raw
+        else:
+            # formato transposto: nutrientes nas linhas
+            df = df_raw.T
+
+        # Renomear colunas
+        df.columns = df.iloc[0]  # primeira linha vira cabeçalho
+        df = df.drop(0)
+
+        # A primeira coluna deve conter o nome das MPs
+        df.rename(columns={df.columns[0]: "nome"}, inplace=True)
+
+        # Converter valores numéricos
+        for col in df.columns:
+            if col != "nome":
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        # Adicionar usuário
         df["usuario_id"] = usuario_id
 
-        # Insere no MongoDB
+        # Inserir no MongoDB
         mp_collection.insert_many(df.to_dict(orient="records"))
 
         return {"mensagem": f"{len(df)} registros importados com sucesso!"}
 
     except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao processar planilha: {str(e)}")
+# --------------------------------------------------------------
+# 🔹 /exportar_materias_primas → Exportar dados do usuário
+# --------------------------------------------------------------
+@app.get("/exportar_materias_primas")
+async def exportar_materias_primas(usuario_id: str):
+    if db is None:
+        raise HTTPException(status_code=503, detail="MongoDB não configurado.")
+
+    try:
+        # Busca as MPs do usuário
+        mps = list(mp_collection.find({"usuario_id": usuario_id}, {"_id": 0}))
+        if not mps:
+            raise HTTPException(status_code=404, detail="Nenhuma matéria-prima encontrada para este usuário.")
+
+        # Converte para DataFrame
+        df = pd.DataFrame(mps)
+
+        # Converte em Excel (BytesIO)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="MateriasPrimas")
+
+        output.seek(0)
+
+        # Retorna como arquivo para download
+        headers = {
+            "Content-Disposition": f"attachment; filename=materias_primas_{usuario_id}.xlsx"
+        }
+
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=headers
+        )
+
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
 # --------------------------------------------------------------
 # 🔹 /optimize → Otimização de fórmula
 # --------------------------------------------------------------
