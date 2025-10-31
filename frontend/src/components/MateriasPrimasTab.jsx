@@ -7,6 +7,9 @@ export default function MateriasPrimasTab() {
   const [proteinas, setProteinas] = useState("");
   const [gorduras, setGorduras] = useState("");
   const [materias, setMaterias] = useState([]);
+  const [arquivo, setArquivo] = useState(null);
+
+  const usuarioId = "teste1"; // ⚠️ pode futuramente vir do login
 
   // Carregar do localStorage
   useEffect(() => {
@@ -19,6 +22,82 @@ export default function MateriasPrimasTab() {
     localStorage.setItem("materias_primas", JSON.stringify(materias));
   }, [materias]);
 
+  // ------------------------------
+  // Importar Matérias-Primas
+  // ------------------------------
+  const importarMaterias = async () => {
+    if (!arquivo) {
+      alert("Selecione um arquivo .xlsx ou .csv para importar!");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("usuario_id", usuarioId);
+    formData.append("file", arquivo);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/importar_materias_primas", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(err);
+      }
+
+      const data = await response.json();
+      alert(data.mensagem || "Importação concluída!");
+
+      // Opcional: atualizar lista local
+      listarMaterias();
+    } catch (err) {
+      alert("Erro ao importar: " + err.message);
+    }
+  };
+
+  // ------------------------------
+  // Exportar Matérias-Primas
+  // ------------------------------
+  const exportarMaterias = async () => {
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:8000/exportar_materias_primas?usuario_id=${usuarioId}`
+      );
+
+      if (!response.ok) throw new Error("Falha ao exportar.");
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `materias_primas_${usuarioId}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      alert("Erro ao exportar: " + err.message);
+    }
+  };
+
+  // ------------------------------
+  // (Opcional) Buscar MPs do banco
+  // ------------------------------
+  const listarMaterias = async () => {
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/mp/${usuarioId}`);
+      if (res.ok) {
+        const data = await res.json();
+        console.log("Materias importadas:", data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // ------------------------------
+  // Adicionar / remover MPs locais
+  // ------------------------------
   const adicionarMateria = () => {
     if (!materia || !custo)
       return alert("Preencha pelo menos o nome e o custo!");
@@ -47,9 +126,34 @@ export default function MateriasPrimasTab() {
     }
   };
 
+  // ------------------------------
+  // JSX
+  // ------------------------------
   return (
     <div className="max-w-5xl mx-auto bg-white p-6 rounded shadow space-y-4">
       <h2 className="text-xl font-semibold">Cadastro de Matérias-Primas</h2>
+
+      {/* Botões de Importar / Exportar */}
+      <div className="flex items-center gap-3 mb-4">
+        <input
+          type="file"
+          accept=".xlsx,.csv"
+          onChange={(e) => setArquivo(e.target.files[0])}
+          className="border p-2 rounded"
+        />
+        <button
+          onClick={importarMaterias}
+          className="bg-green-600 text-white px-4 py-2 rounded"
+        >
+          📥 Importar
+        </button>
+        <button
+          onClick={exportarMaterias}
+          className="bg-blue-600 text-white px-4 py-2 rounded"
+        >
+          📤 Exportar
+        </button>
+      </div>
 
       {/* Formulário */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
