@@ -7,7 +7,7 @@ Aplicação para cadastrar matérias-primas, calcular composição nutricional e
 - React + Vite: interface;
 - FastAPI: API;
 - PuLP + CBC: otimização matemática;
-- PostgreSQL: matérias-primas, nutrientes, composições e preços;
+- PostgreSQL: matérias-primas, nutrientes, preços, projetos e versões de fórmula;
 - SQLAlchemy + Alembic: persistência e migrações.
 
 ## Executar com Docker
@@ -78,6 +78,12 @@ docker compose down -v
 2. Cadastre manualmente uma MP ou importe `.xlsx`/`.csv`.
 3. Revise nutrientes cuja unidade tenha sido marcada como `não informada`.
 4. Abra **Otimização**, defina metas e limites e execute o solver.
+5. Em **Projetos**, registre o briefing e os requisitos de desenvolvimento.
+6. Em **Resultados**, salve a formulação como uma versão do projeto.
+
+Cada salvamento cria uma versão numerada e imutável. A versão preserva a fórmula,
+o custo, a composição calculada, as restrições, a matriz de matérias-primas e os
+requisitos vigentes naquele momento, mesmo que os cadastros sejam alterados depois.
 
 A importação aceita:
 
