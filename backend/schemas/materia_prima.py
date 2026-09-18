@@ -37,6 +37,23 @@ class MateriaPrimaCreate(BaseModel):
         return self
 
 
+class MateriaPrimaUpdate(BaseModel):
+    codigo: str | None = Field(default=None, min_length=1, max_length=30)
+    nome: str | None = Field(default=None, min_length=1, max_length=200)
+    ativa: bool | None = None
+    composicao: list[ComposicaoCreate] | None = None
+
+    @model_validator(mode="after")
+    def validar_atualizacao(self):
+        if not self.model_fields_set:
+            raise ValueError("Informe ao menos um campo para atualização.")
+        if self.composicao is not None:
+            codigos = [item.nutriente_codigo for item in self.composicao]
+            if len(codigos) != len(set(codigos)):
+                raise ValueError("A composição não pode repetir o mesmo nutriente.")
+        return self
+
+
 class ComposicaoRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
