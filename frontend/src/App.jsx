@@ -5,6 +5,7 @@ import OptimizationTab from "./components/OptimizationTab";
 import ConsultaTab from "./components/ConsultaTab";
 import ResultsTab from "./components/ResultsTab";
 import MateriasPrimasTab from "./components/MateriasPrimasTab";
+import ProjetosTab from "./components/ProjetosTab";
 
 export default function App() {
   const [tab, setTab] = useState("otimizacao");
@@ -28,6 +29,8 @@ export default function App() {
         {tab === "consulta" && <ConsultaTab />}
 
         {tab === "resultados" && <ResultsTab />}
+
+        {tab === "projetos" && <ProjetosTab />}
 
         {tab === "materias" && (
           <MateriasPrimasTab
