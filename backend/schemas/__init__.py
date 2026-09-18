@@ -23,6 +23,7 @@ from schemas.apresentacao import (
     ItemEmbalagemRead,
     ItemEmbalagemUpdate,
 )
+from schemas.cenario import CenarioCustoCreate, CenarioCustoRead
 
 __all__ = [
     "ComposicaoCreate",
@@ -44,4 +45,6 @@ __all__ = [
     "ItemEmbalagemCreate",
     "ItemEmbalagemRead",
     "ItemEmbalagemUpdate",
+    "CenarioCustoCreate",
+    "CenarioCustoRead",
 ]
