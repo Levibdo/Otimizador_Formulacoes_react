@@ -13,6 +13,7 @@ from repositories.materia_prima_repository import (
 from schemas import (
     MateriaPrimaCreate,
     MateriaPrimaRead,
+    MateriaPrimaUpdate,
     MatrizOtimizacaoRead,
     PrecoCreate,
 )
@@ -116,6 +117,32 @@ async def importar_materias_primas(
         "nutrientes_por_mp": len(itens[0].composicao) if itens else 0,
         "unidades_nao_informadas": unidades_nao_informadas,
     }
+
+
+@router.get("/{materia_prima_id}", response_model=MateriaPrimaRead)
+def obter_materia_prima(
+    materia_prima_id: int,
+    db: Session = Depends(get_db),
+):
+    try:
+        materia_prima = MateriaPrimaRepository(db).obter(materia_prima_id)
+    except MateriaPrimaNaoEncontradaError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return serializar_materia_prima(materia_prima)
+
+
+@router.patch("/{materia_prima_id}", response_model=MateriaPrimaRead)
+def atualizar_materia_prima(
+    materia_prima_id: int,
+    dados: MateriaPrimaUpdate,
+    db: Session = Depends(get_db),
+):
+    repository = MateriaPrimaRepository(db)
+    materia_prima = executar_escrita(
+        db,
+        lambda: repository.atualizar(materia_prima_id, dados),
+    )
+    return serializar_materia_prima(materia_prima)
 
 
 @router.post("/{materia_prima_id}/precos", response_model=MateriaPrimaRead)
