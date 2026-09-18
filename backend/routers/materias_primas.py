@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from schemas import (
     MatrizOtimizacaoRead,
     PrecoCreate,
 )
+from services.importacao_materias_primas import PlanilhaImportacaoError, parsear_planilha
 
 
 router = APIRouter(prefix="/api/v1/materias-primas", tags=["Matérias-primas"])
@@ -83,6 +84,38 @@ def obter_matriz(
 ):
     referencia = data_referencia or date.today()
     return MateriaPrimaRepository(db).construir_matriz(referencia)
+
+
+@router.post("/importar", status_code=status.HTTP_201_CREATED)
+async def importar_materias_primas(
+    arquivo: UploadFile = File(...),
+    vigencia_inicio: date = Form(...),
+    unidade_padrao: str = Form("não informada"),
+    db: Session = Depends(get_db),
+):
+    try:
+        itens = parsear_planilha(
+            await arquivo.read(),
+            arquivo.filename or "",
+            vigencia_inicio,
+            unidade_padrao,
+        )
+    except PlanilhaImportacaoError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    repository = MateriaPrimaRepository(db)
+    importadas = executar_escrita(db, lambda: repository.importar_lote(itens))
+    unidades_nao_informadas = sum(
+        1
+        for item in itens
+        for composicao in item.composicao
+        if composicao.unidade == "não informada"
+    )
+    return {
+        "materias_primas_importadas": len(importadas),
+        "nutrientes_por_mp": len(itens[0].composicao) if itens else 0,
+        "unidades_nao_informadas": unidades_nao_informadas,
+    }
 
 
 @router.post("/{materia_prima_id}/precos", response_model=MateriaPrimaRead)
