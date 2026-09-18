@@ -12,6 +12,7 @@ import os
 import io
 from pathlib import Path
 from fastapi.responses import StreamingResponse
+from routers import materias_primas_router
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -20,7 +21,8 @@ sys.stdout.reconfigure(encoding='utf-8')
 # ==============================================================
 
 load_dotenv()
-app = FastAPI(title="Otimizador de Formulações API com MongoDB")
+app = FastAPI(title="Otimizador de Formulações API")
+app.include_router(materias_primas_router)
 
 # ============================================================== 
 # CORS
