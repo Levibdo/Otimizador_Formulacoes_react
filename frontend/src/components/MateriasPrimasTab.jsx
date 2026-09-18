@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import {
+  adicionarPrecoMateriaPrima,
+  atualizarMateriaPrima,
   criarMateriaPrima,
-  desativarMateriaPrima,
   importarMateriasPrimas,
   listarMateriasPrimas,
 } from "../api/api";
@@ -30,6 +31,11 @@ export default function MateriasPrimasTab() {
   const [carregando, setCarregando] = useState(false);
   const [arquivo, setArquivo] = useState(null);
   const [unidadePadrao, setUnidadePadrao] = useState("não informada");
+  const [editandoId, setEditandoId] = useState(null);
+  const [materiaPreco, setMateriaPreco] = useState(null);
+  const [novoPreco, setNovoPreco] = useState("");
+  const [novaVigenciaInicio, setNovaVigenciaInicio] = useState(dataLocal());
+  const [novaVigenciaFim, setNovaVigenciaFim] = useState("");
 
   const carregarMaterias = async () => {
     setCarregando(true);
@@ -69,6 +75,7 @@ export default function MateriasPrimasTab() {
     setPreco("");
     setVigenciaInicio(dataLocal());
     setComposicao([nutrienteVazio()]);
+    setEditandoId(null);
   };
 
   const adicionarMateria = async () => {
@@ -76,8 +83,12 @@ export default function MateriasPrimasTab() {
       (item) => item.nutriente_codigo && item.nutriente_nome && item.unidade
     );
 
-    if (!codigo || !nome || preco === "") {
-      setMensagem("Preencha código, nome e preço da matéria-prima.");
+    if (!codigo || !nome || (!editandoId && preco === "")) {
+      setMensagem(
+        editandoId
+          ? "Preencha código e nome da matéria-prima."
+          : "Preencha código, nome e preço da matéria-prima."
+      );
       return;
     }
     if (nutrientesValidos.some((item) => item.valor === "")) {
@@ -86,21 +97,32 @@ export default function MateriasPrimasTab() {
     }
 
     try {
-      await criarMateriaPrima({
+      const dadosBasicos = {
         codigo,
         nome,
         composicao: nutrientesValidos.map((item) => ({
           ...item,
           valor: Number(item.valor),
         })),
-        preco_inicial: {
-          preco_kg: Number(preco),
-          vigencia_inicio: vigenciaInicio,
-        },
-      });
+      };
+      if (editandoId) {
+        await atualizarMateriaPrima(editandoId, dadosBasicos);
+      } else {
+        await criarMateriaPrima({
+          ...dadosBasicos,
+          preco_inicial: {
+            preco_kg: Number(preco),
+            vigencia_inicio: vigenciaInicio,
+          },
+        });
+      }
       limparFormulario();
       await carregarMaterias();
-      setMensagem("Matéria-prima cadastrada com sucesso.");
+      setMensagem(
+        editandoId
+          ? "Matéria-prima atualizada com sucesso."
+          : "Matéria-prima cadastrada com sucesso."
+      );
     } catch (erro) {
       setMensagem(erro.response?.data?.detail || "Erro ao cadastrar matéria-prima.");
     }
@@ -132,18 +154,66 @@ export default function MateriasPrimasTab() {
     }
   };
 
-  const desativar = async (materiaPrima) => {
-    if (!confirm(`Desativar ${materiaPrima.nome}?`)) return;
+  const alternarStatus = async (materiaPrima) => {
+    const acao = materiaPrima.ativa ? "desativar" : "reativar";
+    if (!confirm(`${acao === "desativar" ? "Desativar" : "Reativar"} ${materiaPrima.nome}?`)) return;
 
     try {
-      await desativarMateriaPrima(materiaPrima.id);
+      await atualizarMateriaPrima(materiaPrima.id, { ativa: !materiaPrima.ativa });
       await carregarMaterias();
     } catch (erro) {
-      setMensagem(erro.response?.data?.detail || "Erro ao desativar matéria-prima.");
+      setMensagem(erro.response?.data?.detail || `Erro ao ${acao} matéria-prima.`);
     }
   };
 
-  const precoAtual = (materiaPrima) => materiaPrima.precos?.[0]?.preco_kg;
+  const iniciarEdicao = (materiaPrima) => {
+    setEditandoId(materiaPrima.id);
+    setCodigo(materiaPrima.codigo);
+    setNome(materiaPrima.nome);
+    setPreco("");
+    setComposicao(
+      materiaPrima.composicao.length
+        ? materiaPrima.composicao.map((item) => ({ ...item, valor: Number(item.valor) }))
+        : [nutrienteVazio()]
+    );
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const abrirPrecos = (materiaPrima) => {
+    setMateriaPreco(materiaPrima);
+    setNovoPreco("");
+    setNovaVigenciaInicio(dataLocal());
+    setNovaVigenciaFim("");
+  };
+
+  const salvarNovoPreco = async () => {
+    if (!materiaPreco || novoPreco === "") {
+      setMensagem("Informe o novo preço.");
+      return;
+    }
+    try {
+      const atualizada = await adicionarPrecoMateriaPrima(materiaPreco.id, {
+        preco_kg: Number(novoPreco),
+        vigencia_inicio: novaVigenciaInicio,
+        vigencia_fim: novaVigenciaFim || null,
+      });
+      setMateriaPreco(atualizada);
+      setNovoPreco("");
+      await carregarMaterias();
+      setMensagem("Novo preço registrado com sucesso.");
+    } catch (erro) {
+      setMensagem(erro.response?.data?.detail || "Erro ao registrar preço.");
+    }
+  };
+
+  const precoAtual = (materiaPrima) => {
+    const hoje = dataLocal();
+    return materiaPrima.precos?.find(
+      (item) =>
+        item.vigencia_inicio <= hoje &&
+        (!item.vigencia_fim || item.vigencia_fim >= hoje)
+    )?.preco_kg;
+  };
 
   return (
     <div className="max-w-6xl mx-auto space-y-4">
@@ -208,21 +278,25 @@ export default function MateriasPrimasTab() {
             onChange={(e) => setNome(e.target.value)}
             className="border p-2 rounded"
           />
-          <input
-            type="number"
-            min="0"
-            step="0.0001"
-            placeholder="Preço (R$/kg)"
-            value={preco}
-            onChange={(e) => setPreco(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <input
-            type="date"
-            value={vigenciaInicio}
-            onChange={(e) => setVigenciaInicio(e.target.value)}
-            className="border p-2 rounded"
-          />
+          {!editandoId && (
+            <>
+              <input
+                type="number"
+                min="0"
+                step="0.0001"
+                placeholder="Preço (R$/kg)"
+                value={preco}
+                onChange={(e) => setPreco(e.target.value)}
+                className="border p-2 rounded"
+              />
+              <input
+                type="date"
+                value={vigenciaInicio}
+                onChange={(e) => setVigenciaInicio(e.target.value)}
+                className="border p-2 rounded"
+              />
+            </>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -287,8 +361,17 @@ export default function MateriasPrimasTab() {
             onClick={adicionarMateria}
             className="bg-blue-600 text-white px-4 py-2 rounded"
           >
-            Cadastrar matéria-prima
+            {editandoId ? "Salvar alterações" : "Cadastrar matéria-prima"}
           </button>
+          {editandoId && (
+            <button
+              type="button"
+              onClick={limparFormulario}
+              className="bg-gray-200 px-4 py-2 rounded"
+            >
+              Cancelar edição
+            </button>
+          )}
           {mensagem && <p className="text-sm text-gray-700">{mensagem}</p>}
         </div>
       </div>
@@ -333,13 +416,28 @@ export default function MateriasPrimasTab() {
                   </td>
                   <td className="p-2">{mp.ativa ? "Ativa" : "Inativa"}</td>
                   <td className="p-2 text-center">
-                    <button
-                      onClick={() => desativar(mp)}
-                      disabled={!mp.ativa}
-                      className="bg-red-600 disabled:bg-gray-300 text-white px-3 py-1 rounded text-xs"
-                    >
-                      Desativar
-                    </button>
+                    <div className="flex flex-wrap justify-center gap-1">
+                      <button
+                        onClick={() => iniciarEdicao(mp)}
+                        className="bg-blue-600 text-white px-2 py-1 rounded text-xs"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => abrirPrecos(mp)}
+                        className="bg-amber-600 text-white px-2 py-1 rounded text-xs"
+                      >
+                        Preços
+                      </button>
+                      <button
+                        onClick={() => alternarStatus(mp)}
+                        className={`${
+                          mp.ativa ? "bg-red-600" : "bg-green-600"
+                        } text-white px-2 py-1 rounded text-xs`}
+                      >
+                        {mp.ativa ? "Desativar" : "Reativar"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -347,6 +445,79 @@ export default function MateriasPrimasTab() {
           </tbody>
         </table>
       </div>
+
+      {materiaPreco && (
+        <div className="bg-white p-6 rounded shadow space-y-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="font-medium">Preços — {materiaPreco.nome}</h3>
+              <p className="text-xs text-gray-600">
+                Um novo preço fecha automaticamente a vigência aberta anterior.
+              </p>
+            </div>
+            <button onClick={() => setMateriaPreco(null)} className="text-gray-600">
+              Fechar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <label className="text-sm">
+              Preço (R$/kg)
+              <input
+                type="number"
+                min="0"
+                step="0.0001"
+                value={novoPreco}
+                onChange={(e) => setNovoPreco(e.target.value)}
+                className="block w-full border p-2 rounded"
+              />
+            </label>
+            <label className="text-sm">
+              Início
+              <input
+                type="date"
+                value={novaVigenciaInicio}
+                onChange={(e) => setNovaVigenciaInicio(e.target.value)}
+                className="block w-full border p-2 rounded"
+              />
+            </label>
+            <label className="text-sm">
+              Fim opcional
+              <input
+                type="date"
+                value={novaVigenciaFim}
+                onChange={(e) => setNovaVigenciaFim(e.target.value)}
+                className="block w-full border p-2 rounded"
+              />
+            </label>
+            <button
+              onClick={salvarNovoPreco}
+              className="bg-amber-600 text-white px-4 py-2 rounded"
+            >
+              Registrar preço
+            </button>
+          </div>
+
+          <table className="w-full text-sm border-collapse">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border p-2 text-left">Preço</th>
+                <th className="border p-2 text-left">Início</th>
+                <th className="border p-2 text-left">Fim</th>
+              </tr>
+            </thead>
+            <tbody>
+              {materiaPreco.precos.map((item) => (
+                <tr key={item.id}>
+                  <td className="border p-2">R$ {Number(item.preco_kg).toFixed(4)}</td>
+                  <td className="border p-2">{item.vigencia_inicio}</td>
+                  <td className="border p-2">{item.vigencia_fim || "Em aberto"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
