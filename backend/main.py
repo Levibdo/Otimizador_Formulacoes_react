@@ -431,8 +431,14 @@ async def consultar(request: Request):
     try:
         body = await request.json()
         formulacao = body.get("formulacao", body)
+        matriz_dict = body.get("matriz")
 
-        colunas_norm = {normalizar_nome(c): c for c in materias_primas_local.columns}
+        if matriz_dict:
+            matriz_base = matriz_para_dataframe(matriz_dict)
+        else:
+            matriz_base = materias_primas_local
+
+        colunas_norm = {normalizar_nome(c): c for c in matriz_base.columns}
         proporcoes_validas = {}
 
         for mp, valor in formulacao.items():
@@ -451,7 +457,7 @@ async def consultar(request: Request):
         proporcoes = pd.Series(proporcoes_validas, dtype=float)
         proporcoes = proporcoes / proporcoes.sum()
 
-        matriz_filtrada = materias_primas_local[proporcoes.index]
+        matriz_filtrada = matriz_base[proporcoes.index]
         matriz_sem_custo = matriz_filtrada.drop(index=CUSTO_ROW_NAME, errors="ignore")
 
         nutrientes = matriz_sem_custo.dot(proporcoes)
