@@ -5,6 +5,11 @@ from models.materia_prima import (
     PrecoMateriaPrima,
 )
 from models.projeto import Projeto, VersaoFormula
+from models.apresentacao import (
+    ApresentacaoProduto,
+    ComponenteApresentacao,
+    ItemEmbalagem,
+)
 
 __all__ = [
     "ComposicaoMateriaPrima",
@@ -13,4 +18,7 @@ __all__ = [
     "PrecoMateriaPrima",
     "Projeto",
     "VersaoFormula",
+    "ApresentacaoProduto",
+    "ComponenteApresentacao",
+    "ItemEmbalagem",
 ]
