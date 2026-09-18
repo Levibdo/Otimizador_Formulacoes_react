@@ -393,6 +393,7 @@ async def optimize(request: Request):
         body = await request.json()
         metas = body.get("metas", {})
         restricoes = body.get("restricoes", {})
+        custo_max = body.get("custo_max")
         matriz_dict = body.get("matriz", None)
 
         if matriz_dict:
@@ -401,7 +402,12 @@ async def optimize(request: Request):
             mp_df = materias_primas_local
 
         mp_df = mp_df.apply(pd.to_numeric, errors="ignore").fillna(0)
-        resultado = otimizar_formula(mp_df, restricoes=restricoes, metas=metas)
+        resultado = otimizar_formula(
+            mp_df,
+            restricoes=restricoes,
+            metas=metas,
+            custo_max=custo_max,
+        )
         return resultado
 
     except Exception as e:
