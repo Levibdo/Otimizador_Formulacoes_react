@@ -100,7 +100,18 @@ export default function OptimizationTab({ setTab }) {
         }`
       );
 
-      localStorage.setItem("ultima_otimizacao", JSON.stringify(res));
+      localStorage.setItem(
+        "ultima_otimizacao",
+        JSON.stringify({
+          ...res,
+          contexto_otimizacao: {
+            metas,
+            restricoes: limites_mp,
+            custo_max: custoMax,
+            matriz: dadosMps,
+          },
+        })
+      );
       setTab("resultados");
     } catch (err) {
       console.error("Erro na otimização:", err);
