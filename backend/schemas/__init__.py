@@ -6,6 +6,14 @@ from schemas.materia_prima import (
     MatrizOtimizacaoRead,
     PrecoCreate,
 )
+from schemas.projeto import (
+    ProjetoCreate,
+    ProjetoRead,
+    ProjetoUpdate,
+    RequisitoProjeto,
+    VersaoFormulaCreate,
+    VersaoFormulaRead,
+)
 
 __all__ = [
     "ComposicaoCreate",
@@ -14,4 +22,10 @@ __all__ = [
     "MateriaPrimaUpdate",
     "MatrizOtimizacaoRead",
     "PrecoCreate",
+    "ProjetoCreate",
+    "ProjetoRead",
+    "ProjetoUpdate",
+    "RequisitoProjeto",
+    "VersaoFormulaCreate",
+    "VersaoFormulaRead",
 ]
