@@ -12,7 +12,12 @@ import os
 import io
 from pathlib import Path
 from fastapi.responses import StreamingResponse
-from routers import apresentacoes_router, materias_primas_router, projetos_router
+from routers import (
+    apresentacoes_router,
+    cenarios_router,
+    materias_primas_router,
+    projetos_router,
+)
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -25,6 +30,7 @@ app = FastAPI(title="Otimizador de Formulações API")
 app.include_router(materias_primas_router)
 app.include_router(projetos_router)
 app.include_router(apresentacoes_router)
+app.include_router(cenarios_router)
 
 # ============================================================== 
 # CORS
