@@ -2,6 +2,9 @@
 
 Aplicação para cadastrar matérias-primas, calcular composição nutricional e encontrar formulações de menor custo com programação linear.
 
+O PostgreSQL é a única fonte oficial da aplicação. O backend não depende de
+MongoDB nem de uma planilha local para iniciar ou executar otimizações.
+
 ## Arquitetura
 
 - React + Vite: interface;
