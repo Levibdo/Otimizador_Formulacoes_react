@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import {
   criarMateriaPrima,
   desativarMateriaPrima,
+  importarMateriasPrimas,
   listarMateriasPrimas,
 } from "../api/api";
 
@@ -27,6 +28,8 @@ export default function MateriasPrimasTab() {
   const [composicao, setComposicao] = useState([nutrienteVazio()]);
   const [mensagem, setMensagem] = useState("");
   const [carregando, setCarregando] = useState(false);
+  const [arquivo, setArquivo] = useState(null);
+  const [unidadePadrao, setUnidadePadrao] = useState("não informada");
 
   const carregarMaterias = async () => {
     setCarregando(true);
@@ -103,6 +106,32 @@ export default function MateriasPrimasTab() {
     }
   };
 
+  const importar = async () => {
+    if (!arquivo) {
+      setMensagem("Selecione um arquivo .xlsx ou .csv.");
+      return;
+    }
+
+    setCarregando(true);
+    try {
+      const resultado = await importarMateriasPrimas(
+        arquivo,
+        vigenciaInicio,
+        unidadePadrao
+      );
+      await carregarMaterias();
+      setArquivo(null);
+      setMensagem(
+        `${resultado.materias_primas_importadas} matérias-primas importadas. ` +
+          `${resultado.unidades_nao_informadas} valores ficaram com unidade não informada.`
+      );
+    } catch (erro) {
+      setMensagem(erro.response?.data?.detail || "Erro ao importar planilha.");
+    } finally {
+      setCarregando(false);
+    }
+  };
+
   const desativar = async (materiaPrima) => {
     if (!confirm(`Desativar ${materiaPrima.nome}?`)) return;
 
@@ -123,6 +152,46 @@ export default function MateriasPrimasTab() {
           <h2 className="text-xl font-semibold">Cadastro de Matérias-Primas</h2>
           <p className="text-sm text-gray-600">
             Fonte oficial: PostgreSQL. A composição aceita qualquer quantidade de nutrientes.
+          </p>
+        </div>
+
+        <div className="border rounded p-4 space-y-3 bg-gray-50">
+          <div>
+            <h3 className="font-medium">Importar Excel ou CSV</h3>
+            <p className="text-xs text-gray-600">
+              Aceita matriz transposta (MPs nas colunas) ou tabela vertical com Nome e Custo.
+              A importação é cancelada integralmente se houver erro ou conflito.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <label className="text-sm md:col-span-2">
+              Arquivo
+              <input
+                type="file"
+                accept=".xlsx,.csv"
+                onChange={(e) => setArquivo(e.target.files?.[0] || null)}
+                className="block w-full border p-2 rounded bg-white"
+              />
+            </label>
+            <label className="text-sm">
+              Unidade quando ausente
+              <input
+                value={unidadePadrao}
+                onChange={(e) => setUnidadePadrao(e.target.value)}
+                className="block w-full border p-2 rounded bg-white"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={importar}
+              disabled={carregando}
+              className="bg-green-600 disabled:bg-gray-300 text-white px-4 py-2 rounded"
+            >
+              {carregando ? "Importando..." : "Importar para PostgreSQL"}
+            </button>
+          </div>
+          <p className="text-xs text-amber-700">
+            Use “não informada” quando a planilha misturar g, mg, µg e kcal sem declarar as unidades.
           </p>
         </div>
 
