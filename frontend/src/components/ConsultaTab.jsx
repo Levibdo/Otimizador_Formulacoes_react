@@ -5,12 +5,14 @@ import { PieSection } from "./ChartSection";
 export default function ConsultaTab() {
   const [mps, setMps] = useState([]);
   const [form, setForm] = useState({});
+  const [matriz, setMatriz] = useState({});
   const [resultado, setResultado] = useState(null);
 
   useEffect(() => {
     async function load() {
       const d = await getMetaData();
       setMps(d.materias_primas || []);
+      setMatriz(d.matriz || {});
       const initial = {};
       (d.materias_primas || []).forEach((mp) => (initial[mp] = 0));
       setForm(initial);
@@ -38,7 +40,7 @@ export default function ConsultaTab() {
 
   async function handleConsultar() {
     try {
-      const res = await consultaFormula(form);
+      const res = await consultaFormula(form, matriz);
       console.log("📦 Resposta do backend:", res);
       setResultado(res);
     } catch (err) {

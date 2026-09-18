@@ -10,40 +10,16 @@ export default function OptimizationTab({ setTab }) {
   const [statusMsg, setStatusMsg] = useState(null);
 
   // ==========================================================
-  // 🔹 Carregar MPs do backend + MPs do localStorage
+  // 🔹 Carregar a matriz oficial do PostgreSQL
   // ==========================================================
   useEffect(() => {
     async function load() {
       try {
         const data = await getMetaData();
 
-        // Dados do backend
-        let backendMPs = data.materias_primas || [];
-        let backendNutrientes = data.nutrientes || [];
-        let backendMatriz = data.matriz || {};
-
-        // MPs salvas localmente
-        const localMPs = JSON.parse(localStorage.getItem("materias_primas")) || [];
-
-        // 🔄 Combinar MPs
-        localMPs.forEach((mp) => {
-          // Adiciona se ainda não existir
-          if (!backendMPs.includes(mp.nome)) {
-            backendMPs.push(mp.nome);
-          }
-
-          // Adiciona/atualiza dados nutricionais e custo
-          backendMatriz[mp.nome] = {
-            Carboidratos: parseFloat(mp.carboidratos) || 0,
-            Proteínas: parseFloat(mp.proteinas) || 0,
-            "Gorduras Totais": parseFloat(mp.gorduras) || 0,
-            Custo: parseFloat(mp.custo) || 0,
-          };
-        });
-
-        setMps(backendMPs);
-        setNutrientes(backendNutrientes);
-        setDadosMps(backendMatriz);
+        setMps(data.materias_primas || []);
+        setNutrientes(data.nutrientes || []);
+        setDadosMps(data.matriz || {});
       } catch (err) {
         console.error("Erro ao carregar metadados:", err);
         setStatusMsg("Erro ao carregar metadados.");
@@ -108,7 +84,7 @@ export default function OptimizationTab({ setTab }) {
       metas,
       restricoes: limites_mp,
       custo_max: custoMax,
-      matriz: dadosMps, // 🔹 inclui MPs do localStorage também
+      matriz: dadosMps,
     };
 
     console.log("🔍 Enviando payload completo:", payload);
@@ -124,7 +100,18 @@ export default function OptimizationTab({ setTab }) {
         }`
       );
 
-      localStorage.setItem("ultima_otimizacao", JSON.stringify(res));
+      localStorage.setItem(
+        "ultima_otimizacao",
+        JSON.stringify({
+          ...res,
+          contexto_otimizacao: {
+            metas,
+            restricoes: limites_mp,
+            custo_max: custoMax,
+            matriz: dadosMps,
+          },
+        })
+      );
       setTab("resultados");
     } catch (err) {
       console.error("Erro na otimização:", err);

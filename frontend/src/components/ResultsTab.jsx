@@ -4,15 +4,59 @@ import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { criarVersaoFormula, listarProjetos } from "../api/api";
 
 export default function ResultsTab() {
   const [resultado, setResultado] = useState(null);
+  const [projetos, setProjetos] = useState([]);
+  const [projetoId, setProjetoId] = useState("");
+  const [observacao, setObservacao] = useState("");
+  const [mensagemVersao, setMensagemVersao] = useState("");
+  const [salvandoVersao, setSalvandoVersao] = useState(false);
   const relatorioRef = useRef();
 
   useEffect(() => {
     const saved = localStorage.getItem("ultima_otimizacao");
     if (saved) setResultado(JSON.parse(saved));
+    listarProjetos()
+      .then((dados) => {
+        const ativos = dados.filter((projeto) => projeto.status === "ATIVO");
+        setProjetos(ativos);
+        if (ativos.length) setProjetoId(String(ativos[0].id));
+      })
+      .catch(() => setMensagemVersao("Não foi possível carregar os projetos."));
   }, []);
+
+  const salvarVersao = async () => {
+    if (!projetoId) {
+      setMensagemVersao("Crie ou selecione um projeto ativo.");
+      return;
+    }
+    const contexto = resultado.contexto_otimizacao || {};
+    setSalvandoVersao(true);
+    try {
+      const versao = await criarVersaoFormula(Number(projetoId), {
+        observacao: observacao.trim() || null,
+        status_solver: resultado.status || "Indefinido",
+        custo_total: resultado.custo_total == null ? null : Number(resultado.custo_total),
+        inclusoes: resultado.inclusoes || {},
+        custos_individuais: resultado.custos_individuais || {},
+        composicao_nutricional: resultado.conferencia_nutricional || {},
+        parametros: {
+          metas: contexto.metas || {},
+          restricoes: contexto.restricoes || {},
+          custo_max: contexto.custo_max ?? null,
+        },
+        matriz_snapshot: contexto.matriz || {},
+      });
+      setMensagemVersao(`Versão ${versao.numero} salva com sucesso.`);
+      setObservacao("");
+    } catch (erro) {
+      setMensagemVersao(erro.response?.data?.detail || "Erro ao salvar a versão.");
+    } finally {
+      setSalvandoVersao(false);
+    }
+  };
 
   if (!resultado) {
     return (
@@ -145,6 +189,28 @@ export default function ResultsTab() {
               PDF
             </button>
           </div>
+        </div>
+      </div>
+
+      <div className="bg-white p-4 rounded shadow space-y-3">
+        <div>
+          <h3 className="font-semibold">Salvar no histórico do projeto</h3>
+          <p className="text-sm text-gray-600">
+            Cria uma versão imutável com fórmula, custo, parâmetros, requisitos e matriz usados.
+          </p>
+        </div>
+        <div className="grid md:grid-cols-3 gap-3">
+          <select className="border rounded px-3 py-2" value={projetoId} onChange={(e) => setProjetoId(e.target.value)}>
+            {projetos.length === 0 && <option value="">Nenhum projeto ativo</option>}
+            {projetos.map((projeto) => <option key={projeto.id} value={projeto.id}>{projeto.codigo} — {projeto.nome}</option>)}
+          </select>
+          <input className="border rounded px-3 py-2 md:col-span-2" placeholder="Observação desta versão (opcional)" value={observacao} onChange={(e) => setObservacao(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-3">
+          <button disabled={salvandoVersao || !projetoId} onClick={salvarVersao} className="bg-indigo-600 disabled:bg-indigo-300 text-white px-4 py-2 rounded">
+            {salvandoVersao ? "Salvando..." : "Salvar versão"}
+          </button>
+          {mensagemVersao && <p className="text-sm text-gray-700">{mensagemVersao}</p>}
         </div>
       </div>
 

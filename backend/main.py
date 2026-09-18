@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from optimization_engine import otimizar_formula, CUSTO_ROW_NAME 
+from matrix_contract import documentos_para_matriz, matriz_para_dataframe
 import sys
 import unicodedata
 from pymongo import MongoClient
@@ -9,7 +10,9 @@ from bson import ObjectId
 from dotenv import load_dotenv
 import os
 import io
+from pathlib import Path
 from fastapi.responses import StreamingResponse
+from routers import materias_primas_router, projetos_router
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -18,18 +21,18 @@ sys.stdout.reconfigure(encoding='utf-8')
 # ==============================================================
 
 load_dotenv()
-app = FastAPI(title="Otimizador de Formulações API com MongoDB")
+app = FastAPI(title="Otimizador de Formulações API")
+app.include_router(materias_primas_router)
+app.include_router(projetos_router)
 
 # ============================================================== 
 # CORS
 # ==============================================================
 
-origins = [
-    "http://localhost",
-    "http://127.0.0.1",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost,http://127.0.0.1,http://localhost:5173,http://127.0.0.1:5173",
+).split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -73,7 +76,8 @@ def normalizar_nome(nome):
 # BASE LOCAL (caso MongoDB indisponível)
 # ==============================================================
 
-materias_primas_local = pd.read_excel("data/MPs_data.xlsx", index_col=0)
+DATA_FILE = Path(__file__).resolve().parent / "data" / "MPs_data.xlsx"
+materias_primas_local = pd.read_excel(DATA_FILE, index_col=0)
 materias_primas_local.columns = materias_primas_local.columns.str.strip()
 materias_primas_local.index = materias_primas_local.index.str.strip()
 
@@ -97,10 +101,14 @@ def get_data(usuario_id: str = None):
             if not mps:
                 raise ValueError("Nenhuma MP encontrada no banco do usuário.")
 
-            df = pd.DataFrame(mps).set_index("nome")
-            matriz_dict = df.to_dict()
-            materias = list(df.index)
-            nutrientes = [c for c in df.columns if c not in ["_id", "usuario_id", "nome"]]
+            matriz_dict = documentos_para_matriz(mps)
+            materias = list(matriz_dict)
+            nutrientes = sorted({
+                atributo
+                for dados_mp in matriz_dict.values()
+                for atributo in dados_mp
+                if atributo != CUSTO_ROW_NAME
+            })
 
             return {
                 "materias_primas": materias,
@@ -393,15 +401,20 @@ async def optimize(request: Request):
         body = await request.json()
         metas = body.get("metas", {})
         restricoes = body.get("restricoes", {})
+        custo_max = body.get("custo_max")
         matriz_dict = body.get("matriz", None)
 
         if matriz_dict:
-            mp_df = pd.DataFrame(matriz_dict).T
+            mp_df = matriz_para_dataframe(matriz_dict)
         else:
             mp_df = materias_primas_local
 
-        mp_df = mp_df.apply(pd.to_numeric, errors="ignore").fillna(0)
-        resultado = otimizar_formula(mp_df, restricoes=restricoes, metas=metas)
+        resultado = otimizar_formula(
+            mp_df,
+            restricoes=restricoes,
+            metas=metas,
+            custo_max=custo_max,
+        )
         return resultado
 
     except Exception as e:
@@ -417,8 +430,14 @@ async def consultar(request: Request):
     try:
         body = await request.json()
         formulacao = body.get("formulacao", body)
+        matriz_dict = body.get("matriz")
 
-        colunas_norm = {normalizar_nome(c): c for c in materias_primas_local.columns}
+        if matriz_dict:
+            matriz_base = matriz_para_dataframe(matriz_dict)
+        else:
+            matriz_base = materias_primas_local
+
+        colunas_norm = {normalizar_nome(c): c for c in matriz_base.columns}
         proporcoes_validas = {}
 
         for mp, valor in formulacao.items():
@@ -437,7 +456,7 @@ async def consultar(request: Request):
         proporcoes = pd.Series(proporcoes_validas, dtype=float)
         proporcoes = proporcoes / proporcoes.sum()
 
-        matriz_filtrada = materias_primas_local[proporcoes.index]
+        matriz_filtrada = matriz_base[proporcoes.index]
         matriz_sem_custo = matriz_filtrada.drop(index=CUSTO_ROW_NAME, errors="ignore")
 
         nutrientes = matriz_sem_custo.dot(proporcoes)

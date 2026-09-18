@@ -4,7 +4,7 @@ from pulp import LpProblem, LpVariable, LpMinimize, lpSum, LpStatus
 CUSTO_ROW_NAME = "Custo"
 
 
-def otimizar_formula(materias_primas, restricoes, metas):
+def otimizar_formula(materias_primas, restricoes, metas, custo_max=None):
     model = LpProblem("Otimizador_de_Formulacoes", LpMinimize)
 
     # Variáveis de decisão (% inclusão)
@@ -15,9 +15,16 @@ def otimizar_formula(materias_primas, restricoes, metas):
     }
 
     # Função objetivo: minimizar custo
-    model += lpSum(
+    custo_expressao = lpSum(
         [materias_primas.loc[CUSTO_ROW_NAME, mp] * x[mp] / 100 for mp in x]
-    ), "Custo_Total"
+    )
+    model += custo_expressao, "Custo_Total"
+
+    if custo_max is not None:
+        custo_max = float(custo_max)
+        if custo_max < 0:
+            raise ValueError("O custo máximo não pode ser negativo.")
+        model += custo_expressao <= custo_max, "Custo_Maximo"
 
     # Restrição: soma das inclusões = 100%
     model += lpSum([x[mp] for mp in x]) == 100, "Total_100"
@@ -44,6 +51,15 @@ def otimizar_formula(materias_primas, restricoes, metas):
     # Resolver modelo
     model.solve()
     status = LpStatus[model.status]
+
+    if status != "Optimal":
+        return {
+            "status": status,
+            "custo_total": None,
+            "inclusoes": {},
+            "custos_individuais": {},
+            "conferencia_nutricional": {},
+        }
 
     # Inclusões finais
     resultado = {mp: round(x[mp].value(), 4) for mp in x}
