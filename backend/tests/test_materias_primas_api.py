@@ -71,6 +71,9 @@ def test_cadastra_lista_e_monta_matriz_por_preco_vigente(client):
         json={"preco_kg": 27.0, "vigencia_inicio": "2026-07-01"},
     )
     assert resposta_preco.status_code == 200
+    precos = resposta_preco.json()["precos"]
+    assert precos[0]["vigencia_inicio"] == "2026-07-01"
+    assert precos[1]["vigencia_fim"] == "2026-06-30"
 
     matriz_antiga = client.get(
         "/api/v1/materias-primas/matriz?data_referencia=2026-06-30"
@@ -113,6 +116,66 @@ def test_desativacao_remove_mp_da_matriz_sem_apagar_historico(client):
     assert client.get("/api/v1/materias-primas/matriz").json()["matriz"] == {}
     listagem = client.get("/api/v1/materias-primas").json()
     assert listagem[0]["ativa"] is False
+
+    reativada = client.patch(
+        f"/api/v1/materias-primas/{criada['id']}",
+        json={"ativa": True},
+    )
+    assert reativada.status_code == 200
+    assert reativada.json()["ativa"] is True
+
+
+def test_edita_identificacao_composicao_e_unidade_do_nutriente(client):
+    criada = client.post("/api/v1/materias-primas", json=payload_mp()).json()
+
+    resposta = client.patch(
+        f"/api/v1/materias-primas/{criada['id']}",
+        json={
+            "codigo": "MP0099",
+            "nome": "Proteína de soja revisada",
+            "composicao": [
+                {
+                    "nutriente_codigo": "PROT",
+                    "nutriente_nome": "Proteína",
+                    "unidade": "g/100 g de produto",
+                    "valor": 90.0,
+                }
+            ],
+        },
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.json()["codigo"] == "MP0099"
+    assert resposta.json()["nome"] == "Proteína de soja revisada"
+    composicao = resposta.json()["composicao"]
+    assert len(composicao) == 1
+    assert composicao[0]["nutriente_codigo"] == "PROT"
+    assert composicao[0]["nutriente_nome"] == "Proteína"
+    assert composicao[0]["unidade"] == "g/100 g de produto"
+    assert float(composicao[0]["valor"]) == pytest.approx(90.0)
+
+
+def test_rejeita_sobreposicao_de_precos(client):
+    criada = client.post("/api/v1/materias-primas", json=payload_mp()).json()
+    primeiro = client.post(
+        f"/api/v1/materias-primas/{criada['id']}/precos",
+        json={
+            "preco_kg": 27,
+            "vigencia_inicio": "2026-07-01",
+            "vigencia_fim": "2026-12-31",
+        },
+    )
+    assert primeiro.status_code == 200
+
+    sobreposto = client.post(
+        f"/api/v1/materias-primas/{criada['id']}/precos",
+        json={"preco_kg": 28, "vigencia_inicio": "2026-10-01"},
+    )
+
+    assert sobreposto.status_code == 409
+    assert "sobrepõe" in sobreposto.json()["detail"]
+    atual = client.get(f"/api/v1/materias-primas/{criada['id']}").json()
+    assert len(atual["precos"]) == 2
 
 
 def test_valida_composicao_duplicada_e_vigencia_invalida(client):
