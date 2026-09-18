@@ -21,6 +21,22 @@ export async function desativarMateriaPrima(id) {
   await axios.delete(`${API_BASE}/api/v1/materias-primas/${id}`);
 }
 
+export async function importarMateriasPrimas(
+  arquivo,
+  vigenciaInicio,
+  unidadePadrao = 'não informada'
+) {
+  const formData = new FormData();
+  formData.append('arquivo', arquivo);
+  formData.append('vigencia_inicio', vigenciaInicio);
+  formData.append('unidade_padrao', unidadePadrao);
+  const res = await axios.post(
+    `${API_BASE}/api/v1/materias-primas/importar`,
+    formData
+  );
+  return res.data;
+}
+
 export async function consultaFormula(formulacao, matriz) {
   const res = await axios.post(`${API_BASE}/consulta`, { formulacao, matriz });
   return res.data;
