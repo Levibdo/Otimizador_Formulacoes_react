@@ -18,9 +18,9 @@ export default function OptimizationTab({ setTab }) {
         const data = await getMetaData();
 
         // Dados do backend
-        let backendMPs = data.materias_primas || [];
-        let backendNutrientes = data.nutrientes || [];
-        let backendMatriz = data.matriz || {};
+        const backendMPs = [...(data.materias_primas || [])];
+        const nutrientesSet = new Set(data.nutrientes || []);
+        const backendMatriz = { ...(data.matriz || {}) };
 
         // MPs salvas localmente
         const localMPs = JSON.parse(localStorage.getItem("materias_primas")) || [];
@@ -32,17 +32,25 @@ export default function OptimizationTab({ setTab }) {
             backendMPs.push(mp.nome);
           }
 
-          // Adiciona/atualiza dados nutricionais e custo
-          backendMatriz[mp.nome] = {
+          const nutrientesLocais = mp.nutrientes || {
             Carboidratos: parseFloat(mp.carboidratos) || 0,
             Proteínas: parseFloat(mp.proteinas) || 0,
             "Gorduras Totais": parseFloat(mp.gorduras) || 0,
-            Custo: parseFloat(mp.custo) || 0,
+          };
+
+          Object.keys(nutrientesLocais).forEach((nutriente) =>
+            nutrientesSet.add(nutriente)
+          );
+
+          // Contrato canônico: MP -> Custo e nutrientes
+          backendMatriz[mp.nome] = {
+            Custo: Number(mp.custo) || 0,
+            ...nutrientesLocais,
           };
         });
 
         setMps(backendMPs);
-        setNutrientes(backendNutrientes);
+        setNutrientes([...nutrientesSet]);
         setDadosMps(backendMatriz);
       } catch (err) {
         console.error("Erro ao carregar metadados:", err);
