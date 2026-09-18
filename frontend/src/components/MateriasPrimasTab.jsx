@@ -1,245 +1,283 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import {
+  criarMateriaPrima,
+  desativarMateriaPrima,
+  listarMateriasPrimas,
+} from "../api/api";
+
+const nutrienteVazio = () => ({
+  nutriente_codigo: "",
+  nutriente_nome: "",
+  unidade: "g/100 g",
+  valor: "",
+});
+
+const dataLocal = () => {
+  const hoje = new Date();
+  const offset = hoje.getTimezoneOffset() * 60000;
+  return new Date(hoje.getTime() - offset).toISOString().slice(0, 10);
+};
 
 export default function MateriasPrimasTab() {
-  const [materia, setMateria] = useState("");
-  const [custo, setCusto] = useState("");
-  const [carboidratos, setCarboidratos] = useState("");
-  const [proteinas, setProteinas] = useState("");
-  const [gorduras, setGorduras] = useState("");
   const [materias, setMaterias] = useState([]);
-  const [arquivo, setArquivo] = useState(null);
+  const [codigo, setCodigo] = useState("");
+  const [nome, setNome] = useState("");
+  const [preco, setPreco] = useState("");
+  const [vigenciaInicio, setVigenciaInicio] = useState(dataLocal());
+  const [composicao, setComposicao] = useState([nutrienteVazio()]);
+  const [mensagem, setMensagem] = useState("");
+  const [carregando, setCarregando] = useState(false);
 
-  const usuarioId = "teste1"; // ⚠️ pode futuramente vir do login
+  const carregarMaterias = async () => {
+    setCarregando(true);
+    try {
+      setMaterias(await listarMateriasPrimas());
+      setMensagem("");
+    } catch (erro) {
+      setMensagem(
+        erro.response?.data?.detail || "Não foi possível carregar as matérias-primas."
+      );
+    } finally {
+      setCarregando(false);
+    }
+  };
 
-  // Carregar do localStorage
   useEffect(() => {
-    const saved = localStorage.getItem("materias_primas");
-    if (saved) setMaterias(JSON.parse(saved));
+    carregarMaterias();
   }, []);
 
-  // Salvar no localStorage
-  useEffect(() => {
-    localStorage.setItem("materias_primas", JSON.stringify(materias));
-  }, [materias]);
+  const atualizarNutriente = (indice, campo, valor) => {
+    setComposicao((atual) =>
+      atual.map((item, i) => (i === indice ? { ...item, [campo]: valor } : item))
+    );
+  };
 
-  // ------------------------------
-  // Importar Matérias-Primas
-  // ------------------------------
-  const importarMaterias = async () => {
-    if (!arquivo) {
-      alert("Selecione um arquivo .xlsx ou .csv para importar!");
+  const adicionarNutriente = () => {
+    setComposicao((atual) => [...atual, nutrienteVazio()]);
+  };
+
+  const removerNutriente = (indice) => {
+    setComposicao((atual) => atual.filter((_, i) => i !== indice));
+  };
+
+  const limparFormulario = () => {
+    setCodigo("");
+    setNome("");
+    setPreco("");
+    setVigenciaInicio(dataLocal());
+    setComposicao([nutrienteVazio()]);
+  };
+
+  const adicionarMateria = async () => {
+    const nutrientesValidos = composicao.filter(
+      (item) => item.nutriente_codigo && item.nutriente_nome && item.unidade
+    );
+
+    if (!codigo || !nome || preco === "") {
+      setMensagem("Preencha código, nome e preço da matéria-prima.");
+      return;
+    }
+    if (nutrientesValidos.some((item) => item.valor === "")) {
+      setMensagem("Informe o valor de todos os nutrientes preenchidos.");
       return;
     }
 
-    const formData = new FormData();
-    formData.append("usuario_id", usuarioId);
-    formData.append("file", arquivo);
-
     try {
-      const response = await fetch("http://127.0.0.1:8000/importar_materias_primas", {
-        method: "POST",
-        body: formData,
+      await criarMateriaPrima({
+        codigo,
+        nome,
+        composicao: nutrientesValidos.map((item) => ({
+          ...item,
+          valor: Number(item.valor),
+        })),
+        preco_inicial: {
+          preco_kg: Number(preco),
+          vigencia_inicio: vigenciaInicio,
+        },
       });
-
-      if (!response.ok) {
-        const err = await response.text();
-        throw new Error(err);
-      }
-
-      const data = await response.json();
-      alert(data.mensagem || "Importação concluída!");
-
-      // Opcional: atualizar lista local
-      listarMaterias();
-    } catch (err) {
-      alert("Erro ao importar: " + err.message);
+      limparFormulario();
+      await carregarMaterias();
+      setMensagem("Matéria-prima cadastrada com sucesso.");
+    } catch (erro) {
+      setMensagem(erro.response?.data?.detail || "Erro ao cadastrar matéria-prima.");
     }
   };
 
-  // ------------------------------
-  // Exportar Matérias-Primas
-  // ------------------------------
-  const exportarMaterias = async () => {
+  const desativar = async (materiaPrima) => {
+    if (!confirm(`Desativar ${materiaPrima.nome}?`)) return;
+
     try {
-      const response = await fetch(
-        `http://127.0.0.1:8000/exportar_materias_primas?usuario_id=${usuarioId}`
-      );
-
-      if (!response.ok) throw new Error("Falha ao exportar.");
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `materias_primas_${usuarioId}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch (err) {
-      alert("Erro ao exportar: " + err.message);
+      await desativarMateriaPrima(materiaPrima.id);
+      await carregarMaterias();
+    } catch (erro) {
+      setMensagem(erro.response?.data?.detail || "Erro ao desativar matéria-prima.");
     }
   };
 
-  // ------------------------------
-  // (Opcional) Buscar MPs do banco
-  // ------------------------------
-  const listarMaterias = async () => {
-    try {
-      const res = await fetch(`http://127.0.0.1:8000/mp/${usuarioId}`);
-      if (res.ok) {
-        const data = await res.json();
-        console.log("Materias importadas:", data);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  const precoAtual = (materiaPrima) => materiaPrima.precos?.[0]?.preco_kg;
 
-  // ------------------------------
-  // Adicionar / remover MPs locais
-  // ------------------------------
-  const adicionarMateria = () => {
-    if (!materia || !custo)
-      return alert("Preencha pelo menos o nome e o custo!");
-
-    const nova = {
-      nome: materia,
-      custo: parseFloat(custo),
-      nutrientes: {
-        Carboidratos: parseFloat(carboidratos) || 0,
-        Proteínas: parseFloat(proteinas) || 0,
-        "Gorduras Totais": parseFloat(gorduras) || 0,
-      },
-    };
-
-    setMaterias([...materias, nova]);
-    setMateria("");
-    setCusto("");
-    setCarboidratos("");
-    setProteinas("");
-    setGorduras("");
-  };
-
-  const removerMateria = (index) => {
-    if (confirm("Remover esta matéria-prima?")) {
-      setMaterias(materias.filter((_, i) => i !== index));
-    }
-  };
-
-  // ------------------------------
-  // JSX
-  // ------------------------------
   return (
-    <div className="max-w-5xl mx-auto bg-white p-6 rounded shadow space-y-4">
-      <h2 className="text-xl font-semibold">Cadastro de Matérias-Primas</h2>
+    <div className="max-w-6xl mx-auto space-y-4">
+      <div className="bg-white p-6 rounded shadow space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold">Cadastro de Matérias-Primas</h2>
+          <p className="text-sm text-gray-600">
+            Fonte oficial: PostgreSQL. A composição aceita qualquer quantidade de nutrientes.
+          </p>
+        </div>
 
-      {/* Botões de Importar / Exportar */}
-      <div className="flex items-center gap-3 mb-4">
-        <input
-          type="file"
-          accept=".xlsx,.csv"
-          onChange={(e) => setArquivo(e.target.files[0])}
-          className="border p-2 rounded"
-        />
-        <button
-          onClick={importarMaterias}
-          className="bg-green-600 text-white px-4 py-2 rounded"
-        >
-          📥 Importar
-        </button>
-        <button
-          onClick={exportarMaterias}
-          className="bg-blue-600 text-white px-4 py-2 rounded"
-        >
-          📤 Exportar
-        </button>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <input
+            placeholder="Código (ex.: MP0001)"
+            value={codigo}
+            onChange={(e) => setCodigo(e.target.value)}
+            className="border p-2 rounded"
+          />
+          <input
+            placeholder="Nome"
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            className="border p-2 rounded"
+          />
+          <input
+            type="number"
+            min="0"
+            step="0.0001"
+            placeholder="Preço (R$/kg)"
+            value={preco}
+            onChange={(e) => setPreco(e.target.value)}
+            className="border p-2 rounded"
+          />
+          <input
+            type="date"
+            value={vigenciaInicio}
+            onChange={(e) => setVigenciaInicio(e.target.value)}
+            className="border p-2 rounded"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="font-medium">Composição nutricional</h3>
+            <button
+              type="button"
+              onClick={adicionarNutriente}
+              className="bg-gray-100 px-3 py-1 rounded"
+            >
+              + Nutriente
+            </button>
+          </div>
+
+          {composicao.map((item, indice) => (
+            <div key={indice} className="grid grid-cols-1 md:grid-cols-5 gap-2">
+              <input
+                placeholder="Código (PROT)"
+                value={item.nutriente_codigo}
+                onChange={(e) =>
+                  atualizarNutriente(indice, "nutriente_codigo", e.target.value)
+                }
+                className="border p-2 rounded"
+              />
+              <input
+                placeholder="Nutriente"
+                value={item.nutriente_nome}
+                onChange={(e) =>
+                  atualizarNutriente(indice, "nutriente_nome", e.target.value)
+                }
+                className="border p-2 rounded"
+              />
+              <input
+                placeholder="Unidade"
+                value={item.unidade}
+                onChange={(e) => atualizarNutriente(indice, "unidade", e.target.value)}
+                className="border p-2 rounded"
+              />
+              <input
+                type="number"
+                min="0"
+                step="0.000001"
+                placeholder="Valor"
+                value={item.valor}
+                onChange={(e) => atualizarNutriente(indice, "valor", e.target.value)}
+                className="border p-2 rounded"
+              />
+              <button
+                type="button"
+                onClick={() => removerNutriente(indice)}
+                disabled={composicao.length === 1}
+                className="text-red-600 disabled:text-gray-300"
+              >
+                Remover
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={adicionarMateria}
+            className="bg-blue-600 text-white px-4 py-2 rounded"
+          >
+            Cadastrar matéria-prima
+          </button>
+          {mensagem && <p className="text-sm text-gray-700">{mensagem}</p>}
+        </div>
       </div>
 
-      {/* Formulário */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
-        <input
-          type="text"
-          placeholder="Nome"
-          value={materia}
-          onChange={(e) => setMateria(e.target.value)}
-          className="border p-2 rounded col-span-2"
-        />
-        <input
-          type="number"
-          placeholder="Custo (R$/kg)"
-          value={custo}
-          onChange={(e) => setCusto(e.target.value)}
-          className="border p-2 rounded"
-        />
-        <input
-          type="number"
-          placeholder="Carboidratos (%)"
-          value={carboidratos}
-          onChange={(e) => setCarboidratos(e.target.value)}
-          className="border p-2 rounded"
-        />
-        <input
-          type="number"
-          placeholder="Proteínas (%)"
-          value={proteinas}
-          onChange={(e) => setProteinas(e.target.value)}
-          className="border p-2 rounded"
-        />
-        <input
-          type="number"
-          placeholder="Gorduras Totais (%)"
-          value={gorduras}
-          onChange={(e) => setGorduras(e.target.value)}
-          className="border p-2 rounded"
-        />
-        <button
-          onClick={adicionarMateria}
-          className="bg-blue-600 text-white px-4 py-2 rounded"
-        >
-          Adicionar
-        </button>
-      </div>
-
-      {/* Tabela */}
-      <table className="w-full border-collapse text-sm mt-4">
-        <thead>
-          <tr className="bg-gray-100">
-            <th className="border p-2 text-left">Matéria-Prima</th>
-            <th className="border p-2 text-left">Custo (R$/kg)</th>
-            <th className="border p-2 text-left">Carboidratos (%)</th>
-            <th className="border p-2 text-left">Proteínas (%)</th>
-            <th className="border p-2 text-left">Gorduras Totais (%)</th>
-            <th className="border p-2 text-center">Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-          {materias.length === 0 ? (
-            <tr>
-              <td colSpan="6" className="text-center p-4 text-gray-500">
-                Nenhuma matéria-prima cadastrada.
-              </td>
+      <div className="bg-white p-6 rounded shadow overflow-x-auto">
+        <h3 className="font-medium mb-3">Matérias-primas cadastradas</h3>
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-gray-100">
+              <th className="border p-2 text-left">Código</th>
+              <th className="border p-2 text-left">Matéria-prima</th>
+              <th className="border p-2 text-left">Preço atual</th>
+              <th className="border p-2 text-left">Composição</th>
+              <th className="border p-2 text-left">Status</th>
+              <th className="border p-2 text-center">Ações</th>
             </tr>
-          ) : (
-            materias.map((mp, i) => (
-              <tr key={i} className="border-t">
-                <td className="p-2">{mp.nome}</td>
-                <td className="p-2">{mp.custo.toFixed(4)}</td>
-                <td className="p-2">{mp.nutrientes.Carboidratos}</td>
-                <td className="p-2">{mp.nutrientes.Proteínas}</td>
-                <td className="p-2">{mp.nutrientes["Gorduras Totais"]}</td>
-                <td className="p-2 text-center">
-                  <button
-                    onClick={() => removerMateria(i)}
-                    className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs"
-                  >
-                    Remover
-                  </button>
+          </thead>
+          <tbody>
+            {materias.length === 0 ? (
+              <tr>
+                <td colSpan="6" className="text-center p-4 text-gray-500">
+                  {carregando ? "Carregando..." : "Nenhuma matéria-prima cadastrada."}
                 </td>
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            ) : (
+              materias.map((mp) => (
+                <tr key={mp.id} className="border-t">
+                  <td className="p-2">{mp.codigo}</td>
+                  <td className="p-2">{mp.nome}</td>
+                  <td className="p-2">
+                    {precoAtual(mp) == null
+                      ? "Sem preço"
+                      : `R$ ${Number(precoAtual(mp)).toFixed(4)}/kg`}
+                  </td>
+                  <td className="p-2">
+                    {mp.composicao
+                      .map(
+                        (item) =>
+                          `${item.nutriente_nome}: ${Number(item.valor)} ${item.unidade}`
+                      )
+                      .join("; ") || "Sem composição"}
+                  </td>
+                  <td className="p-2">{mp.ativa ? "Ativa" : "Inativa"}</td>
+                  <td className="p-2 text-center">
+                    <button
+                      onClick={() => desativar(mp)}
+                      disabled={!mp.ativa}
+                      className="bg-red-600 disabled:bg-gray-300 text-white px-3 py-1 rounded text-xs"
+                    >
+                      Desativar
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
