@@ -80,10 +80,16 @@ docker compose down -v
 4. Abra **Otimização**, defina metas e limites e execute o solver.
 5. Em **Projetos**, registre o briefing e os requisitos de desenvolvimento.
 6. Em **Resultados**, salve a formulação como uma versão do projeto.
+7. Em **Apresentações**, cadastre os componentes de embalagem e calcule o custo
+   por unidade e por caixa a partir de uma versão da fórmula.
 
 Cada salvamento cria uma versão numerada e imutável. A versão preserva a fórmula,
 o custo, a composição calculada, as restrições, a matriz de matérias-primas e os
 requisitos vigentes naquele momento, mesmo que os cadastros sejam alterados depois.
+
+O custo de uma apresentação também é histórico: utiliza o custo da fórmula em
+R$/kg, proporcional ao peso líquido, e guarda um snapshot dos custos de pote,
+tampa, selo, rótulo, caixa e demais componentes usados no cálculo.
 
 A importação aceita:
 
