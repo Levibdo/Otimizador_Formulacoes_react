@@ -95,6 +95,12 @@ class MateriaPrimaRepository:
         self.db.flush()
         return self.obter(materia_prima.id)
 
+    def importar_lote(self, itens: list[MateriaPrimaCreate]) -> list[MateriaPrima]:
+        importadas = []
+        for item in itens:
+            importadas.append(self.criar(item))
+        return importadas
+
     def adicionar_preco(
         self, materia_prima_id: int, dados: PrecoCreate
     ) -> MateriaPrima:
