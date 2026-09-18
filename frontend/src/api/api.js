@@ -111,3 +111,15 @@ export async function criarApresentacao(payload) {
   const res = await axios.post(`${API_BASE}/api/v1/apresentacoes`, payload);
   return res.data;
 }
+
+export async function listarCenarios(projetoId = null) {
+  const res = await axios.get(`${API_BASE}/api/v1/cenarios`, {
+    params: projetoId ? { projeto_id: projetoId } : {},
+  });
+  return res.data;
+}
+
+export async function criarCenario(payload) {
+  const res = await axios.post(`${API_BASE}/api/v1/cenarios`, payload);
+  return res.data;
+}
