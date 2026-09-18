@@ -63,3 +63,26 @@ export async function otimizarFormula(payload) {
   const res = await axios.post(`${API_BASE}/optimize`, payload);
   return res.data;
 }
+
+export async function listarProjetos() {
+  const res = await axios.get(`${API_BASE}/api/v1/projetos`);
+  return res.data;
+}
+
+export async function criarProjeto(payload) {
+  const res = await axios.post(`${API_BASE}/api/v1/projetos`, payload);
+  return res.data;
+}
+
+export async function atualizarProjeto(id, payload) {
+  const res = await axios.patch(`${API_BASE}/api/v1/projetos/${id}`, payload);
+  return res.data;
+}
+
+export async function criarVersaoFormula(projetoId, payload) {
+  const res = await axios.post(
+    `${API_BASE}/api/v1/projetos/${projetoId}/versoes`,
+    payload
+  );
+  return res.data;
+}
