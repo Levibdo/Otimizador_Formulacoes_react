@@ -1,5 +1,7 @@
 # Otimizador de Formulações Nutricionais
 
+[![CI](https://github.com/Levibdo/Otimizador_Formulacoes_react/actions/workflows/ci.yml/badge.svg)](https://github.com/Levibdo/Otimizador_Formulacoes_react/actions/workflows/ci.yml)
+
 Aplicação para cadastrar matérias-primas, calcular composição nutricional e encontrar formulações de menor custo com programação linear.
 
 O PostgreSQL é a única fonte oficial da aplicação. O backend não depende de
@@ -137,3 +139,15 @@ Na raiz do repositório, com as dependências Python instaladas:
 ```bash
 pytest -q
 ```
+
+## Validação automática
+
+O workflow **CI** é executado em cada pull request e atualização da `main`. Ele:
+
+1. aplica todas as migrações em uma instância PostgreSQL 16;
+2. executa a suíte do backend com o solver CBC;
+3. gera o build de produção do frontend;
+4. constrói e inicia PostgreSQL, API e interface com Docker Compose;
+5. verifica os endpoints de saúde da API e da interface.
+
+O merge deve ser realizado somente após os três jobs ficarem verdes no GitHub.
