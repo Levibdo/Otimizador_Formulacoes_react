@@ -6,3 +6,4 @@ openpyxl
 pymongo
 python-dotenv
 python-multipart
+pytest
