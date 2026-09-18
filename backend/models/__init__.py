@@ -10,6 +10,7 @@ from models.apresentacao import (
     ComponenteApresentacao,
     ItemEmbalagem,
 )
+from models.cenario import CenarioCusto
 
 __all__ = [
     "ComposicaoMateriaPrima",
@@ -21,4 +22,5 @@ __all__ = [
     "ApresentacaoProduto",
     "ComponenteApresentacao",
     "ItemEmbalagem",
+    "CenarioCusto",
 ]
