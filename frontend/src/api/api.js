@@ -21,6 +21,22 @@ export async function desativarMateriaPrima(id) {
   await axios.delete(`${API_BASE}/api/v1/materias-primas/${id}`);
 }
 
+export async function atualizarMateriaPrima(id, payload) {
+  const res = await axios.patch(
+    `${API_BASE}/api/v1/materias-primas/${id}`,
+    payload
+  );
+  return res.data;
+}
+
+export async function adicionarPrecoMateriaPrima(id, payload) {
+  const res = await axios.post(
+    `${API_BASE}/api/v1/materias-primas/${id}/precos`,
+    payload
+  );
+  return res.data;
+}
+
 export async function importarMateriasPrimas(
   arquivo,
   vigenciaInicio,
