@@ -82,6 +82,8 @@ docker compose down -v
 6. Em **Resultados**, salve a formulação como uma versão do projeto.
 7. Em **Apresentações**, cadastre os componentes de embalagem e calcule o custo
    por unidade e por caixa a partir de uma versão da fórmula.
+8. Em **Cenários**, simule alterações nos preços das matérias-primas e compare o
+   impacto no custo por kg, por apresentação e por caixa.
 
 Cada salvamento cria uma versão numerada e imutável. A versão preserva a fórmula,
 o custo, a composição calculada, as restrições, a matriz de matérias-primas e os
