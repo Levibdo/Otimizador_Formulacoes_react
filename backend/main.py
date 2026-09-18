@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from optimization_engine import otimizar_formula, CUSTO_ROW_NAME 
+from matrix_contract import documentos_para_matriz, matriz_para_dataframe
 import sys
 import unicodedata
 from pymongo import MongoClient
@@ -9,6 +10,7 @@ from bson import ObjectId
 from dotenv import load_dotenv
 import os
 import io
+from pathlib import Path
 from fastapi.responses import StreamingResponse
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -73,7 +75,8 @@ def normalizar_nome(nome):
 # BASE LOCAL (caso MongoDB indisponível)
 # ==============================================================
 
-materias_primas_local = pd.read_excel("data/MPs_data.xlsx", index_col=0)
+DATA_FILE = Path(__file__).resolve().parent / "data" / "MPs_data.xlsx"
+materias_primas_local = pd.read_excel(DATA_FILE, index_col=0)
 materias_primas_local.columns = materias_primas_local.columns.str.strip()
 materias_primas_local.index = materias_primas_local.index.str.strip()
 
@@ -97,10 +100,14 @@ def get_data(usuario_id: str = None):
             if not mps:
                 raise ValueError("Nenhuma MP encontrada no banco do usuário.")
 
-            df = pd.DataFrame(mps).set_index("nome")
-            matriz_dict = df.to_dict()
-            materias = list(df.index)
-            nutrientes = [c for c in df.columns if c not in ["_id", "usuario_id", "nome"]]
+            matriz_dict = documentos_para_matriz(mps)
+            materias = list(matriz_dict)
+            nutrientes = sorted({
+                atributo
+                for dados_mp in matriz_dict.values()
+                for atributo in dados_mp
+                if atributo != CUSTO_ROW_NAME
+            })
 
             return {
                 "materias_primas": materias,
@@ -397,11 +404,10 @@ async def optimize(request: Request):
         matriz_dict = body.get("matriz", None)
 
         if matriz_dict:
-            mp_df = pd.DataFrame(matriz_dict).T
+            mp_df = matriz_para_dataframe(matriz_dict)
         else:
             mp_df = materias_primas_local
 
-        mp_df = mp_df.apply(pd.to_numeric, errors="ignore").fillna(0)
         resultado = otimizar_formula(
             mp_df,
             restricoes=restricoes,
