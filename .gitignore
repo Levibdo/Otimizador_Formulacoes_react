@@ -2,9 +2,11 @@
 node_modules/
 build/
 dist/
+
+# Configuração local (em qualquer nível); manter os exemplos versionáveis
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Logs
 npm-debug.log*
@@ -36,6 +38,7 @@ venv/
 streamlit/.streamlit/secrets.toml
 
 # Cache
+.pytest_cache/
 .cache/
 .temp/
 *.tmp
