@@ -142,7 +142,7 @@ pytest -q
 
 ### Integração com PostgreSQL real
 
-Os 42 casos originais continuam disponíveis sem banco externo. Há também seis
+Os 42 casos originais continuam disponíveis sem banco externo. Há também 25
 casos de integração (marcador `postgresql`), habilitados por `TEST_DATABASE_URL`:
 
 ```bash
@@ -155,7 +155,7 @@ backend/.venv/bin/python -m pytest -q -m postgresql
 Use as credenciais e a porta do seu PostgreSQL. O usuário precisa poder criar e
 remover schemas. Cada caso cria um schema exclusivo, aplica `alembic upgrade head`
 e remove apenas esse schema ao terminar. As tabelas da aplicação não são limpas.
-Sem `TEST_DATABASE_URL`, esses seis casos são pulados; no CI a variável é definida
+Sem `TEST_DATABASE_URL`, esses 25 casos são pulados; no CI a variável é definida
 para que sejam obrigatoriamente executados. Uma conexão inválida causa erro.
 
 Os testes verificam snapshots de fórmulas, requisitos, apresentações e cenários
@@ -163,12 +163,21 @@ após mudanças nos cadastros e abertura de novas conexões; rejeição de `PATC
 `PUT` e `DELETE` de versões pela API; e quatro salvamentos concorrentes do mesmo
 projeto, observando a disputa de locks no PostgreSQL antes de liberar a execução.
 
-A imutabilidade atual é um contrato da API: não há rotas de edição/exclusão de
-versões. Não existem triggers de imutabilidade no banco. Um teste de caracterização
-demonstra que um `UPDATE` SQL direto ainda modifica o custo de uma versão, sem
-alterar seu snapshot de matriz. Esse teste passar registra a limitação atual;
-não significa que o banco bloqueie a alteração. Nenhuma proteção nova de banco
-foi adicionada neste bloco.
+A revisão `20260919_05` também garante a imutabilidade no PostgreSQL: um trigger
+rejeita `UPDATE` e `DELETE` em `versoes_formulas`, inclusive alterações ou remoções
+dos itens JSON da fórmula e dos snapshots. `INSERT` continua permitido. Todos os
+snapshots da fórmula ficam nessa linha; não há tabelas-filhas desse snapshot.
+Apresentações, componentes de apresentação e cenários não recebem essa proteção.
+
+A FK de projeto para versões mantém `ON DELETE CASCADE`, mas o trigger rejeita
+a exclusão de versões pela cascata e desfaz a exclusão do projeto. Não há endpoint
+de exclusão de projeto: o fluxo disponível é arquivar. Projetos sem versões ainda
+podem ser excluídos por SQL, respeitando as demais FKs. Os testes cobrem cascatas
+SQL e ORM, criação normal, concorrência, downgrade e reaplicação da migração.
+
+Proprietários e superusuários ainda podem desabilitar/remover triggers. A proteção
+não substitui o controle de privilégios administrativos e não intercepta `TRUNCATE`
+ou DDL. Consulte [o escopo e as limitações](docs/imutabilidade-versoes-postgresql.md).
 
 Valores `NUMERIC(18, 6)` podem retornar com seis casas decimais na releitura,
 enquanto a resposta de criação conserva a escala recebida. Os testes comparam
@@ -178,7 +187,7 @@ Para reconstruir as dependências do frontend, use `npm ci --include=optional`
 em `frontend/`. O lockfile inclui os binários do Rollup por plataforma; não é
 necessário editar `package.json` ou atualizar versões para instalar o binário Linux.
 
-O relatório do bloco está em [docs/validacao-postgresql.md](docs/validacao-postgresql.md).
+O relatório da validação anterior está em [docs/validacao-postgresql.md](docs/validacao-postgresql.md).
 
 ## Validação automática
 
