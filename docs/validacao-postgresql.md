@@ -1,5 +1,10 @@
 # Validação PostgreSQL — 19/09/2026
 
+Registro histórico do bloco anterior à revisão `20260919_05`. A limitação de
+`UPDATE`/`DELETE` direto descrita aqui foi tratada no bloco de
+[imutabilidade de versões](imutabilidade-versoes-postgresql.md); os resultados
+abaixo documentam a validação realizada antes dessa proteção.
+
 Branch: `chore/validacao-postgresql-ci`. Sem commit, push ou PR neste bloco.
 
 ## Resultado
