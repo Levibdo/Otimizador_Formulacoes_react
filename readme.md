@@ -140,12 +140,52 @@ Na raiz do repositório, com as dependências Python instaladas:
 pytest -q
 ```
 
+### Integração com PostgreSQL real
+
+Os 42 casos originais continuam disponíveis sem banco externo. Há também seis
+casos de integração (marcador `postgresql`), habilitados por `TEST_DATABASE_URL`:
+
+```bash
+export TEST_DATABASE_URL='postgresql+psycopg://usuario:senha@localhost:5433/otimizador_formulacoes'
+backend/.venv/bin/python -m pytest -q
+# Somente integração:
+backend/.venv/bin/python -m pytest -q -m postgresql
+```
+
+Use as credenciais e a porta do seu PostgreSQL. O usuário precisa poder criar e
+remover schemas. Cada caso cria um schema exclusivo, aplica `alembic upgrade head`
+e remove apenas esse schema ao terminar. As tabelas da aplicação não são limpas.
+Sem `TEST_DATABASE_URL`, esses seis casos são pulados; no CI a variável é definida
+para que sejam obrigatoriamente executados. Uma conexão inválida causa erro.
+
+Os testes verificam snapshots de fórmulas, requisitos, apresentações e cenários
+após mudanças nos cadastros e abertura de novas conexões; rejeição de `PATCH`,
+`PUT` e `DELETE` de versões pela API; e quatro salvamentos concorrentes do mesmo
+projeto, observando a disputa de locks no PostgreSQL antes de liberar a execução.
+
+A imutabilidade atual é um contrato da API: não há rotas de edição/exclusão de
+versões. Não existem triggers de imutabilidade no banco. Um teste de caracterização
+demonstra que um `UPDATE` SQL direto ainda modifica o custo de uma versão, sem
+alterar seu snapshot de matriz. Esse teste passar registra a limitação atual;
+não significa que o banco bloqueie a alteração. Nenhuma proteção nova de banco
+foi adicionada neste bloco.
+
+Valores `NUMERIC(18, 6)` podem retornar com seis casas decimais na releitura,
+enquanto a resposta de criação conserva a escala recebida. Os testes comparam
+os valores monetários como `Decimal`.
+
+Para reconstruir as dependências do frontend, use `npm ci --include=optional`
+em `frontend/`. O lockfile inclui os binários do Rollup por plataforma; não é
+necessário editar `package.json` ou atualizar versões para instalar o binário Linux.
+
+O relatório do bloco está em [docs/validacao-postgresql.md](docs/validacao-postgresql.md).
+
 ## Validação automática
 
 O workflow **CI** é executado em cada pull request e atualização da `main`. Ele:
 
 1. aplica todas as migrações em uma instância PostgreSQL 16;
-2. executa a suíte do backend com o solver CBC;
+2. executa a suíte do backend com o solver CBC e os testes de integração PostgreSQL;
 3. gera o build de produção do frontend;
 4. constrói e inicia PostgreSQL, API e interface com Docker Compose;
 5. verifica os endpoints de saúde da API e da interface.
