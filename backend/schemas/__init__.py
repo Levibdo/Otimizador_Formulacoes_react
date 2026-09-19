@@ -14,6 +14,16 @@ from schemas.projeto import (
     VersaoFormulaCreate,
     VersaoFormulaRead,
 )
+from schemas.apresentacao import (
+    ApresentacaoCreate,
+    ApresentacaoRead,
+    ComponenteApresentacaoCreate,
+    ComponenteApresentacaoRead,
+    ItemEmbalagemCreate,
+    ItemEmbalagemRead,
+    ItemEmbalagemUpdate,
+)
+from schemas.cenario import CenarioCustoCreate, CenarioCustoRead
 
 __all__ = [
     "ComposicaoCreate",
@@ -28,4 +38,13 @@ __all__ = [
     "RequisitoProjeto",
     "VersaoFormulaCreate",
     "VersaoFormulaRead",
+    "ApresentacaoCreate",
+    "ApresentacaoRead",
+    "ComponenteApresentacaoCreate",
+    "ComponenteApresentacaoRead",
+    "ItemEmbalagemCreate",
+    "ItemEmbalagemRead",
+    "ItemEmbalagemUpdate",
+    "CenarioCustoCreate",
+    "CenarioCustoRead",
 ]

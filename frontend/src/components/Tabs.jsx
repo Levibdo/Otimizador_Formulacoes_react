@@ -4,6 +4,8 @@ export default function Tabs({ tab, setTab }) {
     { id: "consulta", label: "🔍 Consulta" },
     { id: "resultados", label: "📈 Resultados" },
     { id: "projetos", label: "🧪 Projetos" },
+    { id: "apresentacoes", label: "📦 Apresentações" },
+    { id: "cenarios", label: "🧭 Cenários" },
     { id: "materias", label: "🧱 Matérias-Primas" }
   ];
 

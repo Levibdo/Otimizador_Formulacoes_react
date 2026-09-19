@@ -86,3 +86,40 @@ export async function criarVersaoFormula(projetoId, payload) {
   );
   return res.data;
 }
+
+export async function listarItensEmbalagem() {
+  const res = await axios.get(`${API_BASE}/api/v1/itens-embalagem`);
+  return res.data;
+}
+
+export async function criarItemEmbalagem(payload) {
+  const res = await axios.post(`${API_BASE}/api/v1/itens-embalagem`, payload);
+  return res.data;
+}
+
+export async function atualizarItemEmbalagem(id, payload) {
+  const res = await axios.patch(`${API_BASE}/api/v1/itens-embalagem/${id}`, payload);
+  return res.data;
+}
+
+export async function listarApresentacoes() {
+  const res = await axios.get(`${API_BASE}/api/v1/apresentacoes`);
+  return res.data;
+}
+
+export async function criarApresentacao(payload) {
+  const res = await axios.post(`${API_BASE}/api/v1/apresentacoes`, payload);
+  return res.data;
+}
+
+export async function listarCenarios(projetoId = null) {
+  const res = await axios.get(`${API_BASE}/api/v1/cenarios`, {
+    params: projetoId ? { projeto_id: projetoId } : {},
+  });
+  return res.data;
+}
+
+export async function criarCenario(payload) {
+  const res = await axios.post(`${API_BASE}/api/v1/cenarios`, payload);
+  return res.data;
+}

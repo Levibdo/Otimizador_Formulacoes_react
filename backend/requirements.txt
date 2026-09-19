@@ -3,7 +3,6 @@ uvicorn
 pandas
 pulp
 openpyxl
-pymongo
 python-dotenv
 python-multipart
 pytest

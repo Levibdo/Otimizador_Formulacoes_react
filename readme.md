@@ -1,6 +1,11 @@
 # Otimizador de Formulações Nutricionais
 
+[![CI](https://github.com/Levibdo/Otimizador_Formulacoes_react/actions/workflows/ci.yml/badge.svg)](https://github.com/Levibdo/Otimizador_Formulacoes_react/actions/workflows/ci.yml)
+
 Aplicação para cadastrar matérias-primas, calcular composição nutricional e encontrar formulações de menor custo com programação linear.
+
+O PostgreSQL é a única fonte oficial da aplicação. O backend não depende de
+MongoDB nem de uma planilha local para iniciar ou executar otimizações.
 
 ## Arquitetura
 
@@ -80,10 +85,18 @@ docker compose down -v
 4. Abra **Otimização**, defina metas e limites e execute o solver.
 5. Em **Projetos**, registre o briefing e os requisitos de desenvolvimento.
 6. Em **Resultados**, salve a formulação como uma versão do projeto.
+7. Em **Apresentações**, cadastre os componentes de embalagem e calcule o custo
+   por unidade e por caixa a partir de uma versão da fórmula.
+8. Em **Cenários**, simule alterações nos preços das matérias-primas e compare o
+   impacto no custo por kg, por apresentação e por caixa.
 
 Cada salvamento cria uma versão numerada e imutável. A versão preserva a fórmula,
 o custo, a composição calculada, as restrições, a matriz de matérias-primas e os
 requisitos vigentes naquele momento, mesmo que os cadastros sejam alterados depois.
+
+O custo de uma apresentação também é histórico: utiliza o custo da fórmula em
+R$/kg, proporcional ao peso líquido, e guarda um snapshot dos custos de pote,
+tampa, selo, rótulo, caixa e demais componentes usados no cálculo.
 
 A importação aceita:
 
@@ -126,3 +139,15 @@ Na raiz do repositório, com as dependências Python instaladas:
 ```bash
 pytest -q
 ```
+
+## Validação automática
+
+O workflow **CI** é executado em cada pull request e atualização da `main`. Ele:
+
+1. aplica todas as migrações em uma instância PostgreSQL 16;
+2. executa a suíte do backend com o solver CBC;
+3. gera o build de produção do frontend;
+4. constrói e inicia PostgreSQL, API e interface com Docker Compose;
+5. verifica os endpoints de saúde da API e da interface.
+
+O merge deve ser realizado somente após os três jobs ficarem verdes no GitHub.

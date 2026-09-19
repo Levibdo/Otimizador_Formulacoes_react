@@ -1,6 +1,6 @@
 import pytest
 
-from matrix_contract import documentos_para_matriz, matriz_para_dataframe
+from matrix_contract import matriz_para_dataframe
 
 
 def test_converte_contrato_canonico_em_dataframe_do_motor():
@@ -26,22 +26,6 @@ def test_mantem_compatibilidade_com_formato_transposto_antigo():
 
     assert list(resultado.columns) == ["Maltodextrina", "Proteína de soja"]
     assert resultado.loc["Custo", "Maltodextrina"] == pytest.approx(8.0)
-
-
-def test_converte_documentos_mongo_para_contrato_canonico():
-    documentos = [
-        {
-            "_id": "abc",
-            "usuario_id": "teste1",
-            "nome": "Proteína de soja",
-            "Custo": 25.0,
-            "Proteína": 88.0,
-        }
-    ]
-
-    assert documentos_para_matriz(documentos) == {
-        "Proteína de soja": {"Custo": 25.0, "Proteína": 88.0}
-    }
 
 
 @pytest.mark.parametrize(
