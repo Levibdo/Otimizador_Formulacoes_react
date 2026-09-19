@@ -28,6 +28,7 @@ class RequisitoProjeto(BaseModel):
 
 
 class ProjetoCreate(BaseModel):
+    categoria_produto_id: int | None = Field(default=None, gt=0)
     codigo: str = Field(min_length=1, max_length=30)
     nome: str = Field(min_length=1, max_length=200)
     descricao: str | None = None
@@ -35,6 +36,7 @@ class ProjetoCreate(BaseModel):
 
 
 class ProjetoUpdate(BaseModel):
+    categoria_produto_id: int | None = Field(default=None, gt=0)
     nome: str | None = Field(default=None, min_length=1, max_length=200)
     descricao: str | None = None
     status: Literal["ATIVO", "CONCLUIDO", "ARQUIVADO"] | None = None
@@ -74,6 +76,7 @@ class VersaoFormulaRead(BaseModel):
 
 
 class ProjetoRead(BaseModel):
+    categoria_produto_id: int | None = None
     id: int
     codigo: str
     nome: str

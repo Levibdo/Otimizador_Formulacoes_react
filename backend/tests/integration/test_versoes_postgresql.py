@@ -1,5 +1,6 @@
 """Contrato atual: snapshots persistentes, API sem edição e lock por projeto."""
 from concurrent.futures import ThreadPoolExecutor
+import json
 from threading import Barrier
 from time import monotonic, sleep
 
@@ -293,7 +294,13 @@ def test_downgrade_remove_protecao_e_upgrade_protege_versoes_preexistentes(
         assert conn.execute(text('DELETE FROM versoes_formulas WHERE id = :id'),
                             {'id': versao['id']}).rowcount == 1
     # Cria antes do upgrade: a proteção também deve valer para linhas antigas.
-    existente = post(pg_client, f"projetos/{projeto['id']}/versoes", payload)
+    # No schema antigo, o modelo atual de Projeto pode conter colunas posteriores.
+    # Insere a versão usando somente o contrato da tabela histórica.
+    existente = {**versao, 'projeto_id': projeto['id']}
+    with engine.begin() as conn:
+        conn.execute(text('''INSERT INTO versoes_formulas
+            SELECT * FROM json_populate_record(NULL::versoes_formulas, CAST(:dados AS json))'''),
+            {'dados': json.dumps(existente)})
     alembic_runner(engine.url, 'upgrade', 'head')
     for sql in (
         'UPDATE versoes_formulas SET custo_total = 99 WHERE id = :id',
