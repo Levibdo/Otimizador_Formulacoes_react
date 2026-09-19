@@ -11,6 +11,7 @@ from models.apresentacao import (
     ItemEmbalagem,
 )
 from models.cenario import CenarioCusto
+from models.regulatorio import CategoriaProduto, ComponenteRegulatorio, ComposicaoComponenteMP, RegraRegulatoria
 
 __all__ = [
     "ComposicaoMateriaPrima",
@@ -23,4 +24,8 @@ __all__ = [
     "ComponenteApresentacao",
     "ItemEmbalagem",
     "CenarioCusto",
+    "CategoriaProduto",
+    "ComponenteRegulatorio",
+    "ComposicaoComponenteMP",
+    "RegraRegulatoria",
 ]

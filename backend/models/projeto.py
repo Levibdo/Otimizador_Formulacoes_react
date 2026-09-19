@@ -31,6 +31,9 @@ class Projeto(Base):
     codigo: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
     nome: Mapped[str] = mapped_column(String(200), nullable=False)
     descricao: Mapped[str | None] = mapped_column(Text)
+    categoria_produto_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categorias_produto.id", ondelete="RESTRICT"), index=True
+    )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="ATIVO")
     requisitos: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     criado_em: Mapped[datetime] = mapped_column(

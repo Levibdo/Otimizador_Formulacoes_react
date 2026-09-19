@@ -98,6 +98,22 @@ O custo de uma apresentação também é histórico: utiliza o custo da fórmula
 R$/kg, proporcional ao peso líquido, e guarda um snapshot dos custos de pote,
 tampa, selo, rótulo, caixa e demais componentes usados no cálculo.
 
+## Base regulatória cadastral
+
+A revisão `20260919_06` adiciona a categoria piloto **Fórmula enteral em pó** e
+cadastros manuais para regras sobre matérias-primas comerciais e componentes
+agregados. Projetos podem receber uma categoria opcional; projetos anteriores
+continuam compatíveis sem categoria.
+
+MP sem regra individual pode participar, mas o diagnóstico cadastral gera alerta.
+Concentração desconhecida de componente permanece nula e nunca é interpretada
+como zero; zero exige a situação `AUSENTE_CONFIRMADO`. O cadastro usa inicialmente
+percentuais em massa (`% m/m`).
+
+As regras ainda não são aplicadas ao solver e não representam certificação ou
+alegação automática de conformidade normativa. Consulte o
+[escopo da base regulatória](docs/base-regulatoria-enterais.md).
+
 A importação aceita:
 
 - formato transposto: MPs nas colunas, `Custo` na segunda linha e nutrientes nas linhas seguintes;

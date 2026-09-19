@@ -1,7 +1,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from models import Projeto, VersaoFormula
+from models import Projeto, VersaoFormula, CategoriaProduto
 from schemas import ProjetoCreate, ProjetoUpdate, VersaoFormulaCreate
 
 
@@ -36,12 +36,14 @@ class ProjetoRepository:
         return projeto
 
     def criar(self, dados: ProjetoCreate) -> Projeto:
+        self.validar_categoria(dados.categoria_produto_id)
         if self.db.scalar(select(Projeto).where(Projeto.codigo == dados.codigo)):
             raise ProjetoConflitoError("Já existe projeto com o mesmo código.")
         projeto = Projeto(
             codigo=dados.codigo,
             nome=dados.nome,
             descricao=dados.descricao,
+            categoria_produto_id=dados.categoria_produto_id,
             requisitos=[item.model_dump(mode="json") for item in dados.requisitos],
         )
         self.db.add(projeto)
@@ -50,6 +52,10 @@ class ProjetoRepository:
 
     def atualizar(self, projeto_id: int, dados: ProjetoUpdate) -> Projeto:
         projeto = self.obter(projeto_id)
+        if "categoria_produto_id" in dados.model_fields_set:
+            if dados.categoria_produto_id != projeto.categoria_produto_id:
+                self.validar_categoria(dados.categoria_produto_id)
+            projeto.categoria_produto_id = dados.categoria_produto_id
         if dados.nome is not None:
             projeto.nome = dados.nome
         if "descricao" in dados.model_fields_set:
@@ -62,6 +68,17 @@ class ProjetoRepository:
             ]
         self.db.flush()
         return self.obter(projeto_id)
+
+    def validar_categoria(self, categoria_id):
+        if categoria_id is None:
+            return
+        categoria = self.db.scalar(select(CategoriaProduto).where(
+            CategoriaProduto.id == categoria_id
+        ).with_for_update())
+        if categoria is None:
+            raise ProjetoNaoEncontradoError("Categoria de produto não encontrada.")
+        if not categoria.ativa:
+            raise ProjetoConflitoError("Categoria de produto inativa.")
 
     def criar_versao(
         self,
