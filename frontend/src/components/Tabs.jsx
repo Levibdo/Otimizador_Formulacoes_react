@@ -6,17 +6,18 @@ export default function Tabs({ tab, setTab }) {
     { id: "projetos", label: "🧪 Projetos" },
     { id: "apresentacoes", label: "📦 Apresentações" },
     { id: "cenarios", label: "🧭 Cenários" },
-    { id: "materias", label: "🧱 Matérias-Primas" }
+    { id: "materias", label: "🧱 Matérias-Primas" },
+    { id: "regulatorio", label: "📋 Regulatório" }
   ];
 
   return (
     <div className="bg-white shadow-sm">
-      <div className="max-w-6xl mx-auto flex overflow-x-auto">
+      <div className="max-w-7xl mx-auto flex overflow-x-auto">
         {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-5 py-4 min-w-max flex-1 text-center font-medium ${
+            className={`px-3 py-4 min-w-max flex-1 text-center text-sm font-medium ${
               tab === t.id ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-600"
             }`}
           >

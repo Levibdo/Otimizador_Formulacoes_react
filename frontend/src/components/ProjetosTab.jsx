@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { atualizarProjeto, criarProjeto, listarProjetos } from "../api/api";
+import { atualizarProjeto, criarProjeto, listarCategoriasProduto, listarProjetos } from "../api/api";
+import { mensagemErroApi } from "../utils/regulatory-ui.mjs";
 
 const requisitoVazio = () => ({
   origem: "DESENVOLVIMENTO",
@@ -19,6 +20,8 @@ const statusClasses = {
 
 export default function ProjetosTab() {
   const [projetos, setProjetos] = useState([]);
+  const [categorias, setCategorias] = useState([]);
+  const [categoriaId, setCategoriaId] = useState("");
   const [codigo, setCodigo] = useState("");
   const [nome, setNome] = useState("");
   const [descricao, setDescricao] = useState("");
@@ -28,9 +31,11 @@ export default function ProjetosTab() {
 
   const carregar = async () => {
     try {
-      setProjetos(await listarProjetos());
+      const [dadosProjetos, dadosCategorias] = await Promise.all([listarProjetos(), listarCategoriasProduto(true)]);
+      setProjetos(dadosProjetos);
+      setCategorias(dadosCategorias);
     } catch (erro) {
-      setMensagem(erro.response?.data?.detail || "Não foi possível carregar os projetos.");
+      setMensagem(mensagemErroApi(erro, "Não foi possível carregar os projetos."));
     }
   };
 
@@ -61,6 +66,7 @@ export default function ProjetosTab() {
         codigo: codigo.trim(),
         nome: nome.trim(),
         descricao: descricao.trim() || null,
+        categoria_produto_id: categoriaId ? Number(categoriaId) : null,
         requisitos: preenchidos.map((item) => ({
           ...item,
           minimo: item.minimo === "" ? null : Number(item.minimo),
@@ -72,11 +78,12 @@ export default function ProjetosTab() {
       setCodigo("");
       setNome("");
       setDescricao("");
+      setCategoriaId("");
       setRequisitos([requisitoVazio()]);
       setMensagem("Projeto criado com sucesso.");
       await carregar();
     } catch (erro) {
-      setMensagem(erro.response?.data?.detail || "Erro ao criar o projeto.");
+      setMensagem(mensagemErroApi(erro, "Erro ao criar o projeto."));
     } finally {
       setSalvando(false);
     }
@@ -92,6 +99,14 @@ export default function ProjetosTab() {
     }
   };
 
+  const alterarCategoria = async (projeto, valor) => {
+    try {
+      await atualizarProjeto(projeto.id, { categoria_produto_id: valor ? Number(valor) : null });
+      await carregar();
+      setMensagem("Categoria do projeto atualizada. Projetos históricos não foram alterados automaticamente.");
+    } catch (erro) { setMensagem(mensagemErroApi(erro, "Erro ao atualizar a categoria.")); }
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-4">
       <div className="bg-white p-6 rounded shadow space-y-4">
@@ -103,9 +118,10 @@ export default function ProjetosTab() {
         </div>
 
         <div className="grid md:grid-cols-3 gap-3">
-          <input className="border rounded px-3 py-2" placeholder="Código" value={codigo} onChange={(e) => setCodigo(e.target.value)} />
-          <input className="border rounded px-3 py-2 md:col-span-2" placeholder="Nome do projeto" value={nome} onChange={(e) => setNome(e.target.value)} />
-          <textarea className="border rounded px-3 py-2 md:col-span-3" placeholder="Descrição / objetivo" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
+          <label className="text-sm"><span className="block font-medium mb-1">Código</span><input className="border rounded px-3 py-2 w-full" value={codigo} onChange={(e) => setCodigo(e.target.value)} /></label>
+          <label className="text-sm md:col-span-2"><span className="block font-medium mb-1">Nome do projeto</span><input className="border rounded px-3 py-2 w-full" value={nome} onChange={(e) => setNome(e.target.value)} /></label>
+          <label className="text-sm md:col-span-3"><span className="block font-medium mb-1">Categoria de produto (opcional)</span><select className="border rounded px-3 py-2 w-full" value={categoriaId} onChange={(e)=>setCategoriaId(e.target.value)}><option value="">Sem categoria — sem avaliação regulatória</option>{categorias.map((categoria)=><option key={categoria.id} value={categoria.id}>{categoria.codigo} — {categoria.nome}</option>)}</select></label>
+          <textarea aria-label="Descrição ou objetivo do projeto" className="border rounded px-3 py-2 md:col-span-3" placeholder="Descrição / objetivo" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
         </div>
 
         <div className="space-y-2">
@@ -115,20 +131,20 @@ export default function ProjetosTab() {
           </div>
           {requisitos.map((item, indice) => (
             <div key={indice} className="grid md:grid-cols-12 gap-2 p-3 border rounded bg-gray-50">
-              <select className="border rounded px-2 py-2 md:col-span-2" value={item.origem} onChange={(e) => atualizarRequisito(indice, "origem", e.target.value)}>
+              <select aria-label={`Origem do requisito ${indice + 1}`} className="border rounded px-2 py-2 md:col-span-2" value={item.origem} onChange={(e) => atualizarRequisito(indice, "origem", e.target.value)}>
                 <option value="DESENVOLVIMENTO">Desenvolvimento</option>
                 <option value="TECNICO">Técnico</option>
                 <option value="REGULATORIO">Regulatório</option>
               </select>
-              <select className="border rounded px-2 py-2 md:col-span-2" value={item.tipo_item} onChange={(e) => atualizarRequisito(indice, "tipo_item", e.target.value)}>
+              <select aria-label={`Tipo do requisito ${indice + 1}`} className="border rounded px-2 py-2 md:col-span-2" value={item.tipo_item} onChange={(e) => atualizarRequisito(indice, "tipo_item", e.target.value)}>
                 <option value="NUTRIENTE">Nutriente</option>
                 <option value="MP">Matéria-prima</option>
                 <option value="CUSTO">Custo</option>
               </select>
-              <input className="border rounded px-2 py-2 md:col-span-2" placeholder="Item" value={item.item} onChange={(e) => atualizarRequisito(indice, "item", e.target.value)} />
-              <input type="number" className="border rounded px-2 py-2 md:col-span-2" placeholder="Mínimo" value={item.minimo} onChange={(e) => atualizarRequisito(indice, "minimo", e.target.value)} />
-              <input type="number" className="border rounded px-2 py-2 md:col-span-2" placeholder="Máximo" value={item.maximo} onChange={(e) => atualizarRequisito(indice, "maximo", e.target.value)} />
-              <input className="border rounded px-2 py-2" placeholder="Unidade" value={item.unidade} onChange={(e) => atualizarRequisito(indice, "unidade", e.target.value)} />
+              <input aria-label={`Item do requisito ${indice + 1}`} className="border rounded px-2 py-2 md:col-span-2" placeholder="Item" value={item.item} onChange={(e) => atualizarRequisito(indice, "item", e.target.value)} />
+              <input aria-label={`Mínimo do requisito ${indice + 1}`} type="number" className="border rounded px-2 py-2 md:col-span-2" placeholder="Mínimo" value={item.minimo} onChange={(e) => atualizarRequisito(indice, "minimo", e.target.value)} />
+              <input aria-label={`Máximo do requisito ${indice + 1}`} type="number" className="border rounded px-2 py-2 md:col-span-2" placeholder="Máximo" value={item.maximo} onChange={(e) => atualizarRequisito(indice, "maximo", e.target.value)} />
+              <input aria-label={`Unidade do requisito ${indice + 1}`} className="border rounded px-2 py-2" placeholder="Unidade" value={item.unidade} onChange={(e) => atualizarRequisito(indice, "unidade", e.target.value)} />
               <button className="text-red-600" onClick={() => setRequisitos((atuais) => atuais.filter((_, i) => i !== indice))}>Remover</button>
             </div>
           ))}
@@ -152,12 +168,14 @@ export default function ProjetosTab() {
                   <span className={`text-xs px-2 py-1 rounded ${statusClasses[projeto.status]}`}>{projeto.status}</span>
                 </div>
                 {projeto.descricao && <p className="text-sm text-gray-600 mt-1">{projeto.descricao}</p>}
+                <p className="text-sm mt-1">Categoria: <strong>{categorias.find((c)=>c.id===projeto.categoria_produto_id)?.nome || "Sem categoria — sem avaliação regulatória"}</strong></p>
               </div>
-              <select className="border rounded px-2 py-1 text-sm" value={projeto.status} onChange={(e) => alterarStatus(projeto, e.target.value)}>
+              <select aria-label={`Status do projeto ${projeto.codigo}`} className="border rounded px-2 py-1 text-sm" value={projeto.status} onChange={(e) => alterarStatus(projeto, e.target.value)}>
                 <option value="ATIVO">Ativo</option>
                 <option value="CONCLUIDO">Concluído</option>
                 <option value="ARQUIVADO">Arquivado</option>
               </select>
+              <select aria-label={`Categoria do projeto ${projeto.codigo}`} className="border rounded px-2 py-1 text-sm" value={projeto.categoria_produto_id || ""} onChange={(e)=>alterarCategoria(projeto,e.target.value)}><option value="">Sem categoria</option>{categorias.map((categoria)=><option key={categoria.id} value={categoria.id}>{categoria.nome}</option>)}</select>
             </div>
             <div className="grid md:grid-cols-2 gap-4 text-sm">
               <div>

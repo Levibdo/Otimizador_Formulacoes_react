@@ -5,6 +5,7 @@ import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { criarVersaoFormula, listarProjetos } from "../api/api";
+import { execucaoAptaParaVersao, mensagemErroApi, mensagemStatusRegulatorio } from "../utils/regulatory-ui.mjs";
 
 export default function ResultsTab() {
   const [resultado, setResultado] = useState(null);
@@ -22,7 +23,11 @@ export default function ResultsTab() {
       .then((dados) => {
         const ativos = dados.filter((projeto) => projeto.status === "ATIVO");
         setProjetos(ativos);
-        if (ativos.length) setProjetoId(String(ativos[0].id));
+        if (saved) {
+          const salvo = JSON.parse(saved);
+          if (salvo.modo_otimizacao === "server-side") setProjetoId(String(salvo.projeto_id));
+          else if (ativos.length) setProjetoId(String(ativos[0].id));
+        } else if (ativos.length) setProjetoId(String(ativos[0].id));
       })
       .catch(() => setMensagemVersao("Não foi possível carregar os projetos."));
   }, []);
@@ -35,24 +40,15 @@ export default function ResultsTab() {
     const contexto = resultado.contexto_otimizacao || {};
     setSalvandoVersao(true);
     try {
-      const versao = await criarVersaoFormula(Number(projetoId), {
-        observacao: observacao.trim() || null,
-        status_solver: resultado.status || "Indefinido",
-        custo_total: resultado.custo_total == null ? null : Number(resultado.custo_total),
-        inclusoes: resultado.inclusoes || {},
-        custos_individuais: resultado.custos_individuais || {},
-        composicao_nutricional: resultado.conferencia_nutricional || {},
-        parametros: {
-          metas: contexto.metas || {},
-          restricoes: contexto.restricoes || {},
-          custo_max: contexto.custo_max ?? null,
-        },
-        matriz_snapshot: contexto.matriz || {},
-      });
-      setMensagemVersao(`Versão ${versao.numero} salva com sucesso.`);
+      const payload = resultado.modo_otimizacao === "server-side"
+        ? { execucao_id: resultado.execucao_id }
+        : { observacao: observacao.trim() || null, status_solver: resultado.status || "Indefinido", custo_total: resultado.custo_total == null ? null : Number(resultado.custo_total), inclusoes: resultado.inclusoes || {}, custos_individuais: resultado.custos_individuais || {}, composicao_nutricional: resultado.conferencia_nutricional || {}, parametros: { metas: contexto.metas || {}, restricoes: contexto.restricoes || {}, custo_max: contexto.custo_max ?? null }, matriz_snapshot: contexto.matriz || {} };
+      const versao = await criarVersaoFormula(Number(projetoId), payload);
+      const projeto = projetos.find((item) => String(item.id) === projetoId);
+      setMensagemVersao(`Projeto ${projeto?.codigo || projetoId}: versão ${versao.numero} criada com sucesso.`);
       setObservacao("");
     } catch (erro) {
-      setMensagemVersao(erro.response?.data?.detail || "Erro ao salvar a versão.");
+      setMensagemVersao(mensagemErroApi(erro, "Erro ao salvar a versão."));
     } finally {
       setSalvandoVersao(false);
     }
@@ -91,6 +87,8 @@ export default function ResultsTab() {
   }));
 
   const conferencia = resultado.conferencia_nutricional || {};
+  const serverSide = resultado.modo_otimizacao === "server-side";
+  const podeSalvar = serverSide ? execucaoAptaParaVersao(resultado) : Boolean(projetoId);
 
   // ==========================
   // 🔹 Exportar CSV
@@ -160,13 +158,15 @@ export default function ResultsTab() {
         <div>
           <h2 className="font-semibold">Resultados da Otimização</h2>
           <p className="text-sm text-gray-600">
-            Status: <strong>{resultado.status}</strong>
+            Solver: <strong>{resultado.status_solver || resultado.status || "Não executado"}</strong>
           </p>
+          {serverSide && <><p className="text-sm text-gray-600">Estado regulatório: <strong>{resultado.status}</strong></p><p className="text-sm mt-1">{mensagemStatusRegulatorio(resultado.status)}</p><p className="text-xs text-gray-500 mt-1">Execução #{resultado.execucao_id}</p></>}
+          {!serverSide && <p className="text-sm text-amber-800 mt-1">Simulação manual legada, sem avaliação regulatória.</p>}
         </div>
         <div className="text-right">
           <div className="text-sm text-gray-500">Custo Total</div>
           <div className="text-xl font-bold">
-            R$ {Number(resultado.custo_total).toFixed(4)}
+            {resultado.custo_total == null ? "—" : `R$ ${Number(resultado.custo_total).toFixed(4)}`}
           </div>
 
           <div className="flex gap-2 mt-2 justify-end">
@@ -192,6 +192,14 @@ export default function ResultsTab() {
         </div>
       </div>
 
+      {serverSide && <div className="grid lg:grid-cols-2 gap-4">
+        <div className="bg-white p-4 rounded shadow"><h3 className="font-semibold">Alertas e pendências</h3>{resultado.alertas?.length ? <ul className="list-disc ml-5 mt-2 text-sm">{resultado.alertas.map((x,i)=><li key={i}>{x}</li>)}</ul> : <p className="text-sm text-gray-500 mt-2">Sem alertas.</p>}{resultado.pendencias?.length ? <ul className="list-disc ml-5 mt-2 text-sm">{resultado.pendencias.map((x,i)=><li key={i}>{x}</li>)}</ul> : null}</div>
+        <div className="bg-white p-4 rounded shadow"><h3 className="font-semibold">Diagnóstico</h3>{resultado.diagnostico?.erros?.length ? <ul className="list-disc ml-5 mt-2 text-sm">{resultado.diagnostico.erros.map((x,i)=><li key={i}>{x}</li>)}</ul> : <p className="text-sm text-gray-500 mt-2">Nenhum erro diagnosticado.</p>}</div>
+        <div className="bg-white p-4 rounded shadow overflow-x-auto"><h3 className="font-semibold mb-2">Limites efetivos</h3><table className="w-full text-sm"><thead><tr className="text-left"><th>MP</th><th>Mínimo</th><th>Máximo</th></tr></thead><tbody>{Object.entries(resultado.limites_efetivos||{}).map(([mp,v])=><tr key={mp} className="border-t"><td className="py-2">{mp}</td><td>{v.minimo}%</td><td>{v.maximo}%</td></tr>)}</tbody></table></div>
+        <div className="bg-white p-4 rounded shadow"><h3 className="font-semibold">Regras aplicadas</h3>{resultado.regras_aplicadas?.length ? <ul className="mt-2 text-sm space-y-1">{resultado.regras_aplicadas.map((r)=><li key={r.id}>Regra #{r.id}, revisão {r.revisao}: {r.tipo_alvo} · {r.tratamento}</li>)}</ul> : <p className="text-sm text-gray-500 mt-2">Nenhuma regra ativa aplicada.</p>}</div>
+        <div className="bg-white p-4 rounded shadow lg:col-span-2"><h3 className="font-semibold">Componentes regulatórios calculados</h3>{Object.keys(resultado.componentes||{}).length ? <ul className="mt-2 text-sm grid md:grid-cols-2 gap-1">{Object.entries(resultado.componentes).map(([nome,valor])=><li key={nome}>{nome}: {Number(valor).toFixed(4)}% m/m</li>)}</ul> : <p className="text-sm text-gray-500 mt-2">Nenhum componente agregado foi calculado.</p>}</div>
+      </div>}
+
       <div className="bg-white p-4 rounded shadow space-y-3">
         <div>
           <h3 className="font-semibold">Salvar no histórico do projeto</h3>
@@ -200,18 +208,20 @@ export default function ResultsTab() {
           </p>
         </div>
         <div className="grid md:grid-cols-3 gap-3">
-          <select className="border rounded px-3 py-2" value={projetoId} onChange={(e) => setProjetoId(e.target.value)}>
+          <select aria-label="Projeto da versão" disabled={serverSide} className="border rounded px-3 py-2 disabled:bg-gray-100" value={projetoId} onChange={(e) => setProjetoId(e.target.value)}>
             {projetos.length === 0 && <option value="">Nenhum projeto ativo</option>}
             {projetos.map((projeto) => <option key={projeto.id} value={projeto.id}>{projeto.codigo} — {projeto.nome}</option>)}
           </select>
-          <input className="border rounded px-3 py-2 md:col-span-2" placeholder="Observação desta versão (opcional)" value={observacao} onChange={(e) => setObservacao(e.target.value)} />
+          {!serverSide && <input aria-label="Observação da versão" className="border rounded px-3 py-2 md:col-span-2" placeholder="Observação desta versão (opcional)" value={observacao} onChange={(e) => setObservacao(e.target.value)} />}
+          {serverSide && <p className="text-sm text-gray-600 md:col-span-2 self-center">A versão será criada exclusivamente a partir do snapshot da execução.</p>}
         </div>
         <div className="flex items-center gap-3">
-          <button disabled={salvandoVersao || !projetoId} onClick={salvarVersao} className="bg-indigo-600 disabled:bg-indigo-300 text-white px-4 py-2 rounded">
+          <button disabled={salvandoVersao || !projetoId || !podeSalvar} onClick={salvarVersao} className="bg-indigo-600 disabled:bg-indigo-300 text-white px-4 py-2 rounded">
             {salvandoVersao ? "Salvando..." : "Salvar versão"}
           </button>
           {mensagemVersao && <p className="text-sm text-gray-700">{mensagemVersao}</p>}
         </div>
+        {serverSide && !podeSalvar && <p className="text-sm text-amber-800">Esta execução não possui solução apta para gerar uma versão.</p>}
       </div>
 
       {/* 🔹 Relatório completo para exportar */}

@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "test": "node --test src/utils/regulatory-ui.test.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

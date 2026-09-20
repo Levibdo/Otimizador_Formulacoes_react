@@ -1,230 +1,84 @@
-import React, { useEffect, useState } from "react";
-import { getMetaData, otimizarFormula } from "../api/api";
+import React, { useEffect, useMemo, useState } from "react";
+import { executarOtimizacaoProjeto, getMetaData, listarMateriasPrimas, listarProjetos, otimizarFormula } from "../api/api";
+import { mensagemErroApi, mensagemStatusRegulatorio } from "../utils/regulatory-ui.mjs";
+
+const campo = "border rounded px-3 py-2";
 
 export default function OptimizationTab({ setTab }) {
-  const [mps, setMps] = useState([]);
-  const [nutrientes, setNutrientes] = useState([]);
-  const [dadosMps, setDadosMps] = useState({});
-  const [restricoes, setRestricoes] = useState([]);
-  const [custoMax, setCustoMax] = useState(9999);
-  const [statusMsg, setStatusMsg] = useState(null);
+  const [modo, setModo] = useState("projeto");
+  const [projetos, setProjetos] = useState([]), [projetoId, setProjetoId] = useState("");
+  const [materias, setMaterias] = useState([]), [candidatas, setCandidatas] = useState([]);
+  const [limites, setLimites] = useState({});
+  const [dataReferencia, setDataReferencia] = useState(new Date().toISOString().slice(0, 10));
+  const [executando, setExecutando] = useState(false), [mensagem, setMensagem] = useState("");
+  const [mpsLegadas, setMpsLegadas] = useState([]), [nutrientes, setNutrientes] = useState([]);
+  const [matriz, setMatriz] = useState({}), [restricoes, setRestricoes] = useState([]), [custoMax, setCustoMax] = useState(9999);
 
-  // ==========================================================
-  // 🔹 Carregar a matriz oficial do PostgreSQL
-  // ==========================================================
   useEffect(() => {
-    async function load() {
-      try {
-        const data = await getMetaData();
-
-        setMps(data.materias_primas || []);
-        setNutrientes(data.nutrientes || []);
-        setDadosMps(data.matriz || {});
-      } catch (err) {
-        console.error("Erro ao carregar metadados:", err);
-        setStatusMsg("Erro ao carregar metadados.");
-      }
-    }
-    load();
+    Promise.all([listarProjetos(), listarMateriasPrimas(), getMetaData()]).then(([ps, ms, meta]) => {
+      const ativos = ps.filter((p) => p.status === "ATIVO"), mpsAtivas = ms.filter((mp) => mp.ativa);
+      setProjetos(ativos); setProjetoId(String(ativos[0]?.id || "")); setMaterias(mpsAtivas); setCandidatas(mpsAtivas.map((mp) => mp.id));
+      setMpsLegadas(meta.materias_primas || []); setNutrientes(meta.nutrientes || []); setMatriz(meta.matriz || {});
+    }).catch((erro) => setMensagem(mensagemErroApi(erro, "Não foi possível carregar os dados para otimização.")));
   }, []);
+  const projeto = useMemo(() => projetos.find((p) => String(p.id) === projetoId), [projetos, projetoId]);
+  const alternarCandidata = (id) => setCandidatas((a) => a.includes(id) ? a.filter((x) => x !== id) : [...a, id]);
+  const alterarLimite = (id, chave, valor) => setLimites((a) => ({ ...a, [id]: { ...(a[id] || {}), [chave]: valor } }));
+  const limparResultadoAnterior = () => localStorage.removeItem("ultima_otimizacao");
+  const alterarModo = (novoModo) => {
+    if (novoModo !== modo) limparResultadoAnterior();
+    setModo(novoModo);
+    setMensagem("");
+  };
+  const alterarProjeto = (novoProjetoId) => {
+    if (novoProjetoId !== projetoId) limparResultadoAnterior();
+    setProjetoId(novoProjetoId);
+    setMensagem("");
+  };
 
-  // ==========================================================
-  // 🧩 Gerenciar restrições
-  // ==========================================================
-  function addMpRestriction() {
-    if (mps.length === 0) return;
-    setRestricoes((r) => [
-      ...r,
-      { id: Date.now(), item: mps[0], tipo: "<=", valor: 0, tipo_item: "MP" },
-    ]);
-  }
-
-  function addNutrRestriction() {
-    if (nutrientes.length === 0) return;
-    setRestricoes((r) => [
-      ...r,
-      { id: Date.now(), item: nutrientes[0], tipo: ">=", valor: 0, tipo_item: "Nutriente" },
-    ]);
-  }
-
-  function updateRestriction(idx, field, value) {
-    setRestricoes((prev) =>
-      prev.map((p, i) => (i === idx ? { ...p, [field]: value } : p))
-    );
-  }
-
-  function removeRestriction(idx) {
-    setRestricoes((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  // ==========================================================
-  // 🚀 Enviar para o backend e otimizar
-  // ==========================================================
-  async function handleOptimize() {
-    const metas = {};
-    const limites_mp = {};
-
-    restricoes.forEach((r) => {
-      if (r.tipo_item === "Nutriente") {
-        if (!metas[r.item]) metas[r.item] = [null, null];
-        if (r.tipo === ">=") metas[r.item][0] = parseFloat(r.valor);
-        if (r.tipo === "<=") metas[r.item][1] = parseFloat(r.valor);
-        if (r.tipo === "=")
-          metas[r.item] = [parseFloat(r.valor), parseFloat(r.valor)];
-      } else if (r.tipo_item === "MP") {
-        if (!limites_mp[r.item]) limites_mp[r.item] = [null, null];
-        if (r.tipo === ">=") limites_mp[r.item][0] = parseFloat(r.valor);
-        if (r.tipo === "<=") limites_mp[r.item][1] = parseFloat(r.valor);
-        if (r.tipo === "=")
-          limites_mp[r.item] = [parseFloat(r.valor), parseFloat(r.valor)];
-      }
-    });
-
-    const payload = {
-      metas,
-      restricoes: limites_mp,
-      custo_max: custoMax,
-      matriz: dadosMps,
-    };
-
-    console.log("🔍 Enviando payload completo:", payload);
-
-    setStatusMsg("Executando otimização...");
+  const executarProjeto = async () => {
+    if (!projetoId) return setMensagem("Selecione um projeto ativo.");
+    if (!candidatas.length) return setMensagem("Selecione ao menos uma matéria-prima candidata.");
+    let limitesTecnicos;
     try {
-      const res = await otimizarFormula(payload);
-      console.log("✅ Resposta do backend:", res);
+      limitesTecnicos = candidatas.flatMap((id) => {
+        const item = limites[id] || {}, vazioMin = item.minimo === "" || item.minimo == null, vazioMax = item.maximo === "" || item.maximo == null;
+        if (vazioMin && vazioMax) return [];
+        const minimo = vazioMin ? null : Number(item.minimo), maximo = vazioMax ? null : Number(item.maximo);
+        if (minimo != null && maximo != null && minimo > maximo) throw new Error("O mínimo técnico não pode superar o máximo.");
+        return [{ materia_prima_id: id, minimo, maximo }];
+      });
+    } catch (erro) { return setMensagem(erro.message); }
+    setExecutando(true); setMensagem("Executando otimização com os dados oficiais do PostgreSQL...");
+    try {
+      const resultado = await executarOtimizacaoProjeto(Number(projetoId), { materias_primas_ids: candidatas, limites_tecnicos: limitesTecnicos, data_referencia: dataReferencia });
+      localStorage.setItem("ultima_otimizacao", JSON.stringify({ ...resultado, modo_otimizacao: "server-side", projeto_id: Number(projetoId), projeto_codigo: projeto?.codigo, conferencia_nutricional: resultado.composicao }));
+      setMensagem(mensagemStatusRegulatorio(resultado.status)); setTab("resultados");
+    } catch (erro) { setMensagem(mensagemErroApi(erro, "Não foi possível executar a otimização do projeto.")); }
+    finally { setExecutando(false); }
+  };
 
-      setStatusMsg(
-        `Status: ${res.status || "Indefinido"} — Custo: ${
-          res.custo_total ? res.custo_total.toFixed(4) : "-"
-        }`
-      );
+  const adicionarRestricao = (tipo) => {
+    const itens = tipo === "MP" ? mpsLegadas : nutrientes;
+    if (itens.length) setRestricoes((a) => [...a, { id: Date.now(), item: itens[0], tipo: tipo === "MP" ? "<=" : ">=", valor: 0, tipo_item: tipo }]);
+  };
+  const executarLegado = async () => {
+    const metas = {}, limitesMp = {};
+    restricoes.forEach((r) => { const destino = r.tipo_item === "Nutriente" ? metas : limitesMp; if (!destino[r.item]) destino[r.item] = [null, null]; if (r.tipo === ">=") destino[r.item][0] = Number(r.valor); if (r.tipo === "<=") destino[r.item][1] = Number(r.valor); if (r.tipo === "=") destino[r.item] = [Number(r.valor), Number(r.valor)]; });
+    setExecutando(true); setMensagem("Executando simulação manual legada...");
+    try { const resultado = await otimizarFormula({ metas, restricoes: limitesMp, custo_max: custoMax, matriz }); localStorage.setItem("ultima_otimizacao", JSON.stringify({ ...resultado, modo_otimizacao: "legado", contexto_otimizacao: { metas, restricoes: limitesMp, custo_max: custoMax, matriz } })); setTab("resultados"); }
+    catch (erro) { setMensagem(mensagemErroApi(erro, "Não foi possível executar a simulação manual.")); }
+    finally { setExecutando(false); }
+  };
 
-      localStorage.setItem(
-        "ultima_otimizacao",
-        JSON.stringify({
-          ...res,
-          contexto_otimizacao: {
-            metas,
-            restricoes: limites_mp,
-            custo_max: custoMax,
-            matriz: dadosMps,
-          },
-        })
-      );
-      setTab("resultados");
-    } catch (err) {
-      console.error("Erro na otimização:", err);
-      setStatusMsg("Erro na otimização. Veja o console.");
-    }
-  }
-
-  // ==========================================================
-  // 🧱 Interface
-  // ==========================================================
-  return (
-    <div className="max-w-6xl mx-auto space-y-4">
-      <div className="bg-white p-4 rounded shadow flex items-center justify-between">
-        <div>
-          <h2 className="font-semibold">Configuração</h2>
-          <p className="text-sm text-gray-600">
-            Defina metas e limites para a otimização.
-          </p>
-        </div>
-        <div className="flex gap-3 items-center">
-          <label className="text-sm">Custo Máx. (R$)</label>
-          <input
-            type="number"
-            value={custoMax}
-            onChange={(e) => setCustoMax(parseFloat(e.target.value) || 0)}
-            className="border rounded px-2 py-1 w-32"
-          />
-          <button
-            onClick={handleOptimize}
-            className="bg-blue-600 text-white px-4 py-2 rounded"
-          >
-            🚀 Otimizar
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white p-4 rounded shadow">
-          <h3 className="font-medium mb-3">Restrições</h3>
-          <div className="flex gap-2 mb-3">
-            <button
-              onClick={addMpRestriction}
-              className="px-3 py-1 rounded bg-gray-100"
-            >
-              ➕ MP
-            </button>
-            <button
-              onClick={addNutrRestriction}
-              className="px-3 py-1 rounded bg-gray-100"
-            >
-              ➕ Nutriente
-            </button>
-          </div>
-
-          {restricoes.map((r, i) => (
-            <div
-              key={r.id}
-              className="flex flex-wrap gap-2 items-center bg-white p-2 rounded border border-gray-200"
-            >
-              <select
-                value={r.item}
-                onChange={(e) => updateRestriction(i, "item", e.target.value)}
-                className="flex-1 border rounded px-2 py-1"
-              >
-                {(r.tipo_item === "MP" ? mps : nutrientes).map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={r.tipo}
-                onChange={(e) => updateRestriction(i, "tipo", e.target.value)}
-                className="w-20 border rounded px-2 py-1"
-              >
-                <option value="<=">{"≤"}</option>
-                <option value=">=">{"≥"}</option>
-                <option value="=">{"="}</option>
-              </select>
-              <input
-                type="number"
-                value={r.valor}
-                onChange={(e) => updateRestriction(i, "valor", e.target.value)}
-                className="w-28 border rounded px-2 py-1"
-              />
-              <button
-                onClick={() => removeRestriction(i)}
-                className="text-red-500 px-2"
-              >
-                ✖
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <div className="bg-white p-4 rounded shadow">
-          <h3 className="font-medium mb-3">Resumo / Execução</h3>
-          <ul className="text-sm space-y-1">
-            {restricoes.map((r, idx) => (
-              <li key={idx}>
-                {r.tipo_item} — {r.item} {r.tipo} {r.valor}
-              </li>
-            ))}
-          </ul>
-          <div className="mt-4">
-            <p className="text-sm">{statusMsg}</p>
-            <p className="text-xs text-gray-500 mt-2">
-              Após a otimização, você será levado automaticamente à aba{" "}
-              <strong>Resultados</strong>.
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <div className="max-w-6xl mx-auto space-y-4">
+    <div className="bg-white p-5 rounded shadow"><h2 className="text-lg font-semibold">Otimização</h2><div className="grid md:grid-cols-2 gap-3 mt-4" role="radiogroup" aria-label="Modo de otimização">
+      <button role="radio" aria-checked={modo === "projeto"} onClick={() => alterarModo("projeto")} className={`text-left p-4 border-2 rounded ${modo === 'projeto' ? 'border-blue-600 bg-blue-50' : 'border-gray-200'}`}><strong>Otimização do projeto</strong><span className="block text-sm text-gray-600">Recomendado. Usa cadastros oficiais e avalia as regras aplicáveis.</span></button>
+      <button role="radio" aria-checked={modo === "legado"} onClick={() => alterarModo("legado")} className={`text-left p-4 border-2 rounded ${modo === 'legado' ? 'border-amber-600 bg-amber-50' : 'border-gray-200'}`}><strong>Simulação manual legada</strong><span className="block text-sm text-gray-600">Não realiza avaliação regulatória. Matriz e limites são informados pela tela.</span></button>
+    </div>{mensagem && <p role="status" className="mt-4 p-3 bg-gray-50 border rounded text-sm">{mensagem}</p>}</div>
+    {modo === "projeto" ? <>
+      <div className="bg-white p-5 rounded shadow grid md:grid-cols-2 gap-4"><label className="text-sm"><span className="font-medium block mb-1">Projeto ativo</span><select className={`${campo} w-full`} value={projetoId} onChange={(e) => alterarProjeto(e.target.value)}><option value="">Selecione</option>{projetos.map((p) => <option key={p.id} value={p.id}>{p.codigo} — {p.nome}</option>)}</select></label><label className="text-sm"><span className="font-medium block mb-1">Data de referência</span><input type="date" className={`${campo} w-full`} value={dataReferencia} onChange={(e) => setDataReferencia(e.target.value)} /></label><div className="md:col-span-2 p-3 rounded bg-blue-50 text-sm">Categoria: <strong>{projeto?.categoria_produto_id ? "Categoria regulatória vinculada" : "Sem categoria — o resultado será sem avaliação regulatória"}</strong></div></div>
+      <div className="bg-white p-5 rounded shadow"><div className="flex flex-wrap justify-between gap-2"><div><h3 className="font-semibold">Matérias-primas candidatas</h3><p className="text-sm text-gray-600">Preços e composições são carregados pelo servidor.</p></div><div className="flex gap-2"><button className="px-3 py-1 bg-gray-100 rounded" onClick={() => setCandidatas(materias.map((mp)=>mp.id))}>Selecionar todas</button><button className="px-3 py-1 bg-gray-100 rounded" onClick={() => setCandidatas([])}>Limpar</button></div></div><div className="mt-4 space-y-2">{materias.map((mp) => <div key={mp.id} className="grid md:grid-cols-12 gap-2 items-center border rounded p-3"><label className="md:col-span-6 flex gap-2 items-center"><input type="checkbox" checked={candidatas.includes(mp.id)} onChange={() => alternarCandidata(mp.id)} /><span>{mp.codigo} — {mp.nome}</span></label><label className="md:col-span-3 text-sm">Mínimo técnico (%)<input type="number" min="0" max="100" disabled={!candidatas.includes(mp.id)} className={`${campo} w-full`} value={limites[mp.id]?.minimo ?? ""} onChange={(e)=>alterarLimite(mp.id,'minimo',e.target.value)}/></label><label className="md:col-span-3 text-sm">Máximo técnico (%)<input type="number" min="0" max="100" disabled={!candidatas.includes(mp.id)} className={`${campo} w-full`} value={limites[mp.id]?.maximo ?? ""} onChange={(e)=>alterarLimite(mp.id,'maximo',e.target.value)}/></label></div>)}</div><button disabled={executando || !projetoId || !candidatas.length} onClick={executarProjeto} className="mt-4 bg-blue-600 disabled:bg-blue-300 text-white px-4 py-2 rounded">{executando ? "Executando..." : "Otimizar projeto"}</button></div>
+    </> : <div className="bg-white p-5 rounded shadow space-y-4 border-t-4 border-amber-500"><div><h3 className="font-semibold">Simulação manual legada</h3><p className="text-sm text-amber-800">Este modo não aplica regras regulatórias e não produz declaração de conformidade.</p></div><label className="text-sm">Custo máximo (R$/kg)<input type="number" className={`${campo} ml-2`} value={custoMax} onChange={(e)=>setCustoMax(Number(e.target.value))}/></label><div className="flex gap-2"><button className="px-3 py-1 bg-gray-100 rounded" onClick={()=>adicionarRestricao('MP')}>+ Limite de MP</button><button className="px-3 py-1 bg-gray-100 rounded" onClick={()=>adicionarRestricao('Nutriente')}>+ Meta nutricional</button></div><div className="space-y-2">{restricoes.map((r,i)=><div key={r.id} className="grid md:grid-cols-5 gap-2"><select aria-label="Item da restrição" className={campo} value={r.item} onChange={(e)=>setRestricoes((a)=>a.map((x,j)=>j===i?{...x,item:e.target.value}:x))}>{(r.tipo_item==='MP'?mpsLegadas:nutrientes).map(x=><option key={x}>{x}</option>)}</select><select aria-label="Operador" className={campo} value={r.tipo} onChange={(e)=>setRestricoes((a)=>a.map((x,j)=>j===i?{...x,tipo:e.target.value}:x))}><option>&lt;=</option><option>&gt;=</option><option>=</option></select><input aria-label="Valor" type="number" className={campo} value={r.valor} onChange={(e)=>setRestricoes((a)=>a.map((x,j)=>j===i?{...x,valor:e.target.value}:x))}/><button className="text-red-700" onClick={()=>setRestricoes((a)=>a.filter((_,j)=>j!==i))}>Remover</button></div>)}</div><button disabled={executando} onClick={executarLegado} className="bg-amber-600 disabled:bg-amber-300 text-white px-4 py-2 rounded">{executando ? "Executando..." : "Executar simulação manual"}</button></div>}
+  </div>;
 }
