@@ -7,6 +7,16 @@ Aplicação para cadastrar matérias-primas, calcular composição nutricional e
 O PostgreSQL é a única fonte oficial da aplicação. O backend não depende de
 MongoDB nem de uma planilha local para iniciar ou executar otimizações.
 
+## Estado do MVP
+
+A homologação técnica do MVP regulatório foi concluída com dados totalmente
+fictícios. A validação atual reúne 120 testes backend, testes da interface no CI
+e fluxos Docker e PostgreSQL verificados. Dados e regras normativas reais ainda
+precisam ser definidos e validados por responsáveis especializados; o sistema
+não declara conformidade normativa. A autenticação foi adiada até a preparação
+de uma implantação compartilhada. Consulte o
+[relatório de homologação](docs/homologacao-mvp-regulatorio.md).
+
 ## Arquitetura
 
 - React + Vite: interface;
