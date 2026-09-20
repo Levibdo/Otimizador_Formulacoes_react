@@ -51,6 +51,9 @@ class Projeto(Base):
         cascade="all, delete-orphan",
         order_by="VersaoFormula.numero",
     )
+    execucoes_otimizacao: Mapped[list["ExecucaoOtimizacao"]] = relationship(
+        back_populates="projeto", cascade="all, delete-orphan"
+    )
 
 
 class VersaoFormula(Base):
@@ -83,3 +86,40 @@ class VersaoFormula(Base):
     )
 
     projeto: Mapped[Projeto] = relationship(back_populates="versoes")
+
+
+class ExecucaoOtimizacao(Base):
+    __tablename__ = "execucoes_otimizacao"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('SEM_AVALIACAO_REGULATORIA', 'ATENDE', "
+            "'ATENDE_COM_ALERTAS', 'INCONCLUSIVA', 'INVIAVEL', 'ERRO_TECNICO')",
+            name="ck_execucao_otimizacao_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    projeto_id: Mapped[int] = mapped_column(
+        ForeignKey("projetos.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    instante: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    versao_motor: Mapped[str] = mapped_column(String(30), nullable=False)
+    entradas_contexto: Mapped[dict] = mapped_column(JSON, nullable=False)
+    requisitos_usados: Mapped[list] = mapped_column(JSON, nullable=False)
+    regras_regulatorias_usadas: Mapped[list] = mapped_column(JSON, nullable=False)
+    limites_efetivos: Mapped[dict] = mapped_column(JSON, nullable=False)
+    alertas: Mapped[list] = mapped_column(JSON, nullable=False)
+    pendencias: Mapped[list] = mapped_column(JSON, nullable=False)
+    resultado_diagnostico: Mapped[dict] = mapped_column(JSON, nullable=False)
+    referencia_precos: Mapped[dict] = mapped_column(JSON, nullable=False)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    projeto: Mapped[Projeto] = relationship(back_populates="execucoes_otimizacao")

@@ -4,7 +4,7 @@ from pulp import LpProblem, LpVariable, LpMinimize, lpSum, LpStatus
 CUSTO_ROW_NAME = "Custo"
 
 
-def otimizar_formula(materias_primas, restricoes, metas, custo_max=None):
+def otimizar_formula(materias_primas, restricoes, metas, custo_max=None, restricoes_agregadas=None):
     model = LpProblem("Otimizador_de_Formulacoes", LpMinimize)
 
     # Variáveis de decisão (% inclusão)
@@ -48,6 +48,14 @@ def otimizar_formula(materias_primas, restricoes, metas, custo_max=None):
             if max_val is not None:
                 model += expr <= max_val, f"{nutr}_max"
 
+    for nome, dados in (restricoes_agregadas or {}).items():
+        coeficientes, min_val, max_val = dados
+        expr = lpSum([float(coeficientes.get(mp, 0)) * x[mp] / 100 for mp in x])
+        if min_val is not None:
+            model += expr >= float(min_val), f"agregado_{nome}_min"
+        if max_val is not None:
+            model += expr <= float(max_val), f"agregado_{nome}_max"
+
     # Resolver modelo
     model.solve()
     status = LpStatus[model.status]
@@ -62,7 +70,8 @@ def otimizar_formula(materias_primas, restricoes, metas, custo_max=None):
         }
 
     # Inclusões finais
-    resultado = {mp: round(x[mp].value(), 4) for mp in x}
+    resultado_bruto = {mp: float(x[mp].value()) for mp in x}
+    resultado = {mp: round(valor, 4) for mp, valor in resultado_bruto.items()}
 
     # Cálculo do custo total e individual
     custos = {}
@@ -86,4 +95,19 @@ def otimizar_formula(materias_primas, restricoes, metas, custo_max=None):
         "inclusoes": resultado,
         "custos_individuais": custos,
         "conferencia_nutricional": conferencia_nutricional,
+        "resultado_bruto": {
+            "inclusoes": resultado_bruto,
+            "custo_total": sum(
+                float(materias_primas.loc[CUSTO_ROW_NAME, mp]) * valor / 100
+                for mp, valor in resultado_bruto.items()
+            ),
+            "composicao_nutricional": {
+                nutriente: sum(
+                    float(materias_primas.loc[nutriente, mp]) * resultado_bruto[mp] / 100
+                    for mp in resultado_bruto
+                )
+                for nutriente in materias_primas.index
+                if nutriente != CUSTO_ROW_NAME
+            },
+        },
     }

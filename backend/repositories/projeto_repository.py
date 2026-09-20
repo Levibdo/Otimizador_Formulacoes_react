@@ -1,7 +1,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from models import Projeto, VersaoFormula, CategoriaProduto
+from models import ExecucaoOtimizacao, Projeto, VersaoFormula, CategoriaProduto
 from schemas import ProjetoCreate, ProjetoUpdate, VersaoFormulaCreate
 
 
@@ -91,18 +91,54 @@ class ProjetoRepository:
                 VersaoFormula.projeto_id == projeto_id
             )
         )
+        if dados.execucao_id is not None:
+            execucao = self.db.get(ExecucaoOtimizacao, dados.execucao_id)
+            if execucao is None:
+                raise ProjetoNaoEncontradoError("Execução de otimização não encontrada.")
+            if execucao.projeto_id != projeto_id:
+                raise ProjetoConflitoError("A execução não pertence ao projeto informado.")
+            resultado = execucao.resultado_diagnostico.get("resultado", {})
+            if execucao.status not in ("ATENDE", "ATENDE_COM_ALERTAS", "SEM_AVALIACAO_REGULATORIA") or resultado.get("status") != "Optimal":
+                raise ProjetoConflitoError("Somente uma execução concluída com solução ótima pode gerar versão.")
+            contexto = execucao.entradas_contexto
+            status_solver = resultado["status"]
+            custo_total = resultado.get("custo_total")
+            inclusoes = resultado.get("inclusoes", {})
+            custos_individuais = resultado.get("custos_individuais", {})
+            composicao_nutricional = resultado.get("conferencia_nutricional", {})
+            parametros = {
+                "execucao_id": execucao.id,
+                "versao_motor": execucao.versao_motor,
+                "status_regulatorio": execucao.status,
+                "regras_regulatorias": execucao.regras_regulatorias_usadas,
+                "limites_efetivos": execucao.limites_efetivos,
+                "alertas": execucao.alertas,
+                "pendencias": execucao.pendencias,
+                "componentes_regulatorios": resultado.get("componentes_regulatorios", {}),
+            }
+            matriz_snapshot = {mp["nome"]: mp["composicao"] for mp in contexto["materias_primas"]}
+            requisitos_snapshot = execucao.requisitos_usados
+        else:
+            status_solver = dados.status_solver
+            custo_total = dados.custo_total
+            inclusoes = dados.inclusoes
+            custos_individuais = dados.custos_individuais
+            composicao_nutricional = dados.composicao_nutricional
+            parametros = dados.parametros
+            matriz_snapshot = dados.matriz_snapshot
+            requisitos_snapshot = list(projeto.requisitos)
         versao = VersaoFormula(
             projeto_id=projeto_id,
             numero=(maior_numero or 0) + 1,
             observacao=dados.observacao,
-            status_solver=dados.status_solver,
-            custo_total=dados.custo_total,
-            inclusoes=dados.inclusoes,
-            custos_individuais=dados.custos_individuais,
-            composicao_nutricional=dados.composicao_nutricional,
-            parametros=dados.parametros,
-            matriz_snapshot=dados.matriz_snapshot,
-            requisitos_snapshot=list(projeto.requisitos),
+            status_solver=status_solver,
+            custo_total=custo_total,
+            inclusoes=inclusoes,
+            custos_individuais=custos_individuais,
+            composicao_nutricional=composicao_nutricional,
+            parametros=parametros,
+            matriz_snapshot=matriz_snapshot,
+            requisitos_snapshot=requisitos_snapshot,
         )
         self.db.add(versao)
         self.db.flush()

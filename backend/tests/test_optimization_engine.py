@@ -28,6 +28,7 @@ def test_minimiza_custo_respeitando_meta_nutricional(materias_primas):
         "MP proteica": pytest.approx(50.0),
     }
     assert resultado["conferencia_nutricional"]["Proteína"] == pytest.approx(20.0)
+    assert resultado["resultado_bruto"]["inclusoes"]["MP barata"] == pytest.approx(50.0)
 
 
 def test_aplica_limites_de_materia_prima(materias_primas):
@@ -82,3 +83,14 @@ def test_rejeita_custo_maximo_negativo(materias_primas):
             metas={},
             custo_max=-1,
         )
+
+
+def test_aplica_limite_agregado_de_componente_em_varias_mps(materias_primas):
+    resultado = otimizar_formula(
+        materias_primas,
+        restricoes={},
+        metas={},
+        restricoes_agregadas={"COMP": ({"MP barata": 20, "MP proteica": 0}, None, 10)},
+    )
+    assert resultado["status"] == "Optimal"
+    assert resultado["inclusoes"]["MP barata"] == pytest.approx(50)

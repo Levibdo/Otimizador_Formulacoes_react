@@ -50,14 +50,25 @@ class ProjetoUpdate(BaseModel):
 
 
 class VersaoFormulaCreate(BaseModel):
+    execucao_id: int | None = Field(default=None, gt=0)
     observacao: str | None = None
-    status_solver: str = Field(min_length=1, max_length=30)
+    status_solver: str | None = Field(default=None, min_length=1, max_length=30)
     custo_total: Decimal | None = Field(default=None, ge=0)
-    inclusoes: dict[str, float]
-    custos_individuais: dict[str, float]
-    composicao_nutricional: dict[str, float]
+    inclusoes: dict[str, float] | None = None
+    custos_individuais: dict[str, float] | None = None
+    composicao_nutricional: dict[str, float] | None = None
     parametros: dict = Field(default_factory=dict)
     matriz_snapshot: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validar_origem(self):
+        if self.execucao_id is None:
+            obrigatorios = (self.status_solver, self.inclusoes, self.custos_individuais, self.composicao_nutricional)
+            if any(valor is None for valor in obrigatorios):
+                raise ValueError("O fluxo legado exige o resultado completo da otimização.")
+        elif any(valor is not None for valor in (self.status_solver, self.custo_total, self.inclusoes, self.custos_individuais, self.composicao_nutricional)) or self.parametros or self.matriz_snapshot:
+            raise ValueError("Com execucao_id, o servidor obtém todos os dados da execução persistida.")
+        return self
 
 
 class VersaoFormulaRead(BaseModel):

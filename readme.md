@@ -110,9 +110,12 @@ Concentração desconhecida de componente permanece nula e nunca é interpretada
 como zero; zero exige a situação `AUSENTE_CONFIRMADO`. O cadastro usa inicialmente
 percentuais em massa (`% m/m`).
 
-As regras ainda não são aplicadas ao solver e não representam certificação ou
-alegação automática de conformidade normativa. Consulte o
-[escopo da base regulatória](docs/base-regulatoria-enterais.md).
+O novo fluxo server-side aplica essas regras sem representar certificação ou
+alegação automática de conformidade normativa. `POST
+/api/v1/projetos/{id}/otimizacoes` busca matriz, requisitos e regras no
+PostgreSQL, persiste uma execução imutável e permite criar uma versão histórica
+com `execucao_id`. Consulte o [contrato do motor](docs/motor-regulatorio-solver.md)
+e o [escopo da base regulatória](docs/base-regulatoria-enterais.md).
 
 A importação aceita:
 
