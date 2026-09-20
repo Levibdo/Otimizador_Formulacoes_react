@@ -24,6 +24,7 @@ from schemas.apresentacao import (
     ItemEmbalagemUpdate,
 )
 from schemas.cenario import CenarioCustoCreate, CenarioCustoRead
+from schemas.otimizacao import ExecucaoOtimizacaoRead, OtimizacaoCreate, OtimizacaoResponse
 
 __all__ = [
     "ComposicaoCreate",
@@ -47,4 +48,7 @@ __all__ = [
     "ItemEmbalagemUpdate",
     "CenarioCustoCreate",
     "CenarioCustoRead",
+    "ExecucaoOtimizacaoRead",
+    "OtimizacaoCreate",
+    "OtimizacaoResponse",
 ]

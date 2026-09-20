@@ -19,6 +19,7 @@ from routers import (
     materias_primas_router,
     projetos_router,
     regulatorio_router,
+    otimizacoes_router,
 )
 
 
@@ -62,7 +63,7 @@ def postgres_app(alembic_runner):
         alembic_runner(isolated_url, "upgrade", "head")
         engine = create_engine(isolated_url, pool_size=10)
         app = FastAPI()
-        for router in (projetos_router, materias_primas_router, apresentacoes_router, cenarios_router, regulatorio_router):
+        for router in (projetos_router, materias_primas_router, apresentacoes_router, cenarios_router, regulatorio_router, otimizacoes_router):
             app.include_router(router)
 
         def database_session():
