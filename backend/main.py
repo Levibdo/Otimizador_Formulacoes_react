@@ -1,6 +1,7 @@
 import os
 import sys
 import unicodedata
+import logging
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -21,6 +22,7 @@ from routers import (
 
 sys.stdout.reconfigure(encoding="utf-8")
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Otimizador de Formulações API",
@@ -79,8 +81,9 @@ async def optimize(request: Request):
             metas=body.get("metas", {}),
             custo_max=body.get("custo_max"),
         )
-    except Exception as exc:
-        return {"erro": str(exc)}
+    except Exception:
+        logger.exception("Falha na rota legada de otimização.")
+        return {"erro": "Não foi possível executar a otimização."}
 
 
 @app.post("/consulta")
@@ -128,5 +131,6 @@ async def consultar(request: Request):
             ],
             "custo_total": custo_por_mp.sum(),
         }
-    except Exception as exc:
-        return {"erro": str(exc)}
+    except Exception:
+        logger.exception("Falha na rota legada de consulta.")
+        return {"erro": "Não foi possível consultar a formulação."}
