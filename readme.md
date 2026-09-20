@@ -117,6 +117,12 @@ PostgreSQL, persiste uma execução imutável e permite criar uma versão histó
 com `execucao_id`. Consulte o [contrato do motor](docs/motor-regulatorio-solver.md)
 e o [escopo da base regulatória](docs/base-regulatoria-enterais.md).
 
+A interface React possui uma aba **Regulatório** para categorias, componentes,
+composições e regras. A tela de otimização separa o modo recomendado, ligado ao
+projeto e ao PostgreSQL, da simulação manual legada. Resultados server-side são
+versionados exclusivamente pelo `execucao_id`. Consulte o
+[guia da interface regulatória](docs/interface-regulatoria.md).
+
 A importação aceita:
 
 - formato transposto: MPs nas colunas, `Custo` na segunda linha e nutrientes nas linhas seguintes;

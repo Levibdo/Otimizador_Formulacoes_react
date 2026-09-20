@@ -8,6 +8,7 @@ import MateriasPrimasTab from "./components/MateriasPrimasTab";
 import ProjetosTab from "./components/ProjetosTab";
 import ApresentacoesTab from "./components/ApresentacoesTab";
 import CenariosTab from "./components/CenariosTab";
+import RegulatoryTab from "./components/RegulatoryTab";
 
 export default function App() {
   const [tab, setTab] = useState("otimizacao");
@@ -37,6 +38,8 @@ export default function App() {
         {tab === "apresentacoes" && <ApresentacoesTab />}
 
         {tab === "cenarios" && <CenariosTab />}
+
+        {tab === "regulatorio" && <RegulatoryTab />}
 
         {tab === "materias" && (
           <MateriasPrimasTab

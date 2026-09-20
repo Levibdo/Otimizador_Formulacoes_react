@@ -87,6 +87,95 @@ export async function criarVersaoFormula(projetoId, payload) {
   return res.data;
 }
 
+export async function executarOtimizacaoProjeto(projetoId, payload) {
+  const res = await axios.post(
+    `${API_BASE}/api/v1/projetos/${projetoId}/otimizacoes`,
+    payload
+  );
+  return res.data;
+}
+
+export async function obterExecucaoOtimizacao(id) {
+  const res = await axios.get(`${API_BASE}/api/v1/otimizacoes/${id}`);
+  return res.data;
+}
+
+export async function listarCategoriasProduto(ativa = null) {
+  const res = await axios.get(`${API_BASE}/api/v1/categorias-produto`, {
+    params: ativa == null ? {} : { ativa },
+  });
+  return res.data;
+}
+
+export async function criarCategoriaProduto(payload) {
+  const res = await axios.post(`${API_BASE}/api/v1/categorias-produto`, payload);
+  return res.data;
+}
+
+export async function atualizarCategoriaProduto(id, payload) {
+  const res = await axios.patch(`${API_BASE}/api/v1/categorias-produto/${id}`, payload);
+  return res.data;
+}
+
+export async function obterDiagnosticoCategoria(id) {
+  const res = await axios.get(`${API_BASE}/api/v1/categorias-produto/${id}/diagnostico-cadastral`);
+  return res.data;
+}
+
+export async function listarComponentesRegulatorios(ativo = null) {
+  const res = await axios.get(`${API_BASE}/api/v1/componentes-regulatorios`, {
+    params: ativo == null ? {} : { ativo },
+  });
+  return res.data;
+}
+
+export async function criarComponenteRegulatorio(payload) {
+  const res = await axios.post(`${API_BASE}/api/v1/componentes-regulatorios`, payload);
+  return res.data;
+}
+
+export async function atualizarComponenteRegulatorio(id, payload) {
+  const res = await axios.patch(`${API_BASE}/api/v1/componentes-regulatorios/${id}`, payload);
+  return res.data;
+}
+
+export async function listarComposicoesRegulatorias(mpId) {
+  const res = await axios.get(`${API_BASE}/api/v1/materias-primas/${mpId}/componentes-regulatorios`);
+  return res.data;
+}
+
+export async function criarComposicaoRegulatoria(mpId, payload) {
+  const res = await axios.post(`${API_BASE}/api/v1/materias-primas/${mpId}/componentes-regulatorios`, payload);
+  return res.data;
+}
+
+export async function ativarComposicaoRegulatoria(id, ativo) {
+  const res = await axios.patch(`${API_BASE}/api/v1/composicoes-componentes-mp/${id}`, { ativo });
+  return res.data;
+}
+
+export async function listarRegrasRegulatorias(categoriaId = null) {
+  const res = await axios.get(`${API_BASE}/api/v1/regras-regulatorias`, {
+    params: categoriaId ? { categoria_id: categoriaId } : {},
+  });
+  return res.data;
+}
+
+export async function criarRegraRegulatoria(payload) {
+  const res = await axios.post(`${API_BASE}/api/v1/regras-regulatorias`, payload);
+  return res.data;
+}
+
+export async function ativarRegraRegulatoria(id, ativa) {
+  const res = await axios.patch(`${API_BASE}/api/v1/regras-regulatorias/${id}`, { ativa });
+  return res.data;
+}
+
+export async function revisarRegraRegulatoria(id, payload) {
+  const res = await axios.post(`${API_BASE}/api/v1/regras-regulatorias/${id}/revisoes`, payload);
+  return res.data;
+}
+
 export async function listarItensEmbalagem() {
   const res = await axios.get(`${API_BASE}/api/v1/itens-embalagem`);
   return res.data;
