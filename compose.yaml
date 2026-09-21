@@ -2,15 +2,15 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-otimizador_formulacoes}
-      POSTGRES_USER: ${POSTGRES_USER:-otimizador}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-otimizador_local}
+      POSTGRES_DB: ${POSTGRES_DB:?Defina POSTGRES_DB no arquivo .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Defina POSTGRES_USER no arquivo .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:?Defina POSTGRES_PORT no arquivo .env}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-otimizador} -d ${POSTGRES_DB:-otimizador_formulacoes}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -20,10 +20,10 @@ services:
     build:
       context: ./backend
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-otimizador}:${POSTGRES_PASSWORD:-otimizador_local}@postgres:5432/${POSTGRES_DB:-otimizador_formulacoes}
-      CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-5173},http://127.0.0.1:${FRONTEND_PORT:-5173}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CORS_ORIGINS: http://localhost:${FRONTEND_PORT:?Defina FRONTEND_PORT no arquivo .env},http://127.0.0.1:${FRONTEND_PORT}
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "127.0.0.1:${BACKEND_PORT:?Defina BACKEND_PORT no arquivo .env}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,9 +44,9 @@ services:
     build:
       context: ./frontend
     environment:
-      VITE_API_BASE: http://localhost:${BACKEND_PORT:-8000}
+      VITE_API_BASE: http://localhost:${BACKEND_PORT}
     ports:
-      - "${FRONTEND_PORT:-5173}:5173"
+      - "127.0.0.1:${FRONTEND_PORT}:5173"
     depends_on:
       backend:
         condition: service_healthy

@@ -14,7 +14,8 @@ fictícios. A validação atual reúne 120 testes backend, testes da interface n
 e fluxos Docker e PostgreSQL verificados. Dados e regras normativas reais ainda
 precisam ser definidos e validados por responsáveis especializados; o sistema
 não declara conformidade normativa. A autenticação foi adiada até a preparação
-de uma implantação compartilhada. Consulte o
+de uma implantação compartilhada. Esta versão deve ser usada somente na máquina
+local, sem exposição à rede. Consulte o
 [relatório de homologação](docs/homologacao-mvp-regulatorio.md).
 
 ## Arquitetura
@@ -39,13 +40,16 @@ git clone https://github.com/Levibdo/Otimizador_Formulacoes_react.git
 cd Otimizador_Formulacoes_react
 ```
 
-Opcionalmente, crie o arquivo local de configuração:
+Crie o arquivo local de configuração obrigatório:
 
 ```bash
 cp .env.example .env
 ```
 
-Para uso fora de um ambiente local, altere `POSTGRES_PASSWORD` antes de iniciar.
+Substitua `POSTGRES_PASSWORD` por uma senha local própria antes de iniciar. O
+Compose rejeita variáveis obrigatórias ausentes. Os serviços são publicados em
+`127.0.0.1` e não devem ser expostos à LAN ou internet enquanto não houver
+autenticação.
 
 Construa e inicie os três serviços:
 
@@ -60,7 +64,13 @@ Endereços padrão:
 - Interface: <http://localhost:5173>
 - API: <http://localhost:8000>
 - Swagger: <http://localhost:8000/docs>
+- Health: <http://localhost:8000/health>
 - PostgreSQL: `localhost:5432`
+
+Se uma porta estiver ocupada, ajuste `POSTGRES_PORT`, `BACKEND_PORT` ou
+`FRONTEND_PORT` no `.env`. Consulte o
+[guia de operação local](docs/operacao-local.md) para configuração completa,
+persistência, parada segura, backup e restauração em banco de teste.
 
 Para executar em segundo plano:
 
