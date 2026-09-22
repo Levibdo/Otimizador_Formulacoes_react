@@ -82,3 +82,65 @@ células.
 `GET /api/v1/importacoes-cadastrais/template` gera o template em memória. Os
 exemplos usam somente códigos e nomes iniciados por `FICT_` ou explicitamente
 descritos como fictícios. O download não consulta nem grava dados.
+
+## Pré-validação contra o PostgreSQL
+
+`POST /api/v1/importacoes-cadastrais/validar` recebe o arquivo no campo
+multipart `arquivo`, aplica o parser estrutural e compara os códigos com o estado
+atual do PostgreSQL. A operação executa somente consultas em lote. Ela não faz
+`INSERT`, `UPDATE`, `DELETE`, `flush`, `commit` ou alteração de objetos da sessão.
+
+A resposta contém:
+
+- `versao`: versão encontrada no workbook;
+- `sha256`: hash SHA-256 do arquivo integral recebido;
+- `valido_para_confirmacao`: ausência de erros estruturais e cadastrais;
+- `resumo`: contagens por aba de criações, atualizações, desativações, linhas sem
+  alteração, avisos e erros;
+- `operacoes`: ações que seriam executadas e os nomes dos campos que mudariam;
+- `operacoes_total`: total anterior ao limite da resposta;
+- `diagnosticos`: erros e avisos localizados;
+- `diagnosticos_total`: total anterior ao limite da resposta;
+- `resultado_truncado`: indica corte de diagnósticos ou operações.
+
+A resposta expõe no máximo 200 diagnósticos e 500 operações. Contagens do resumo
+sempre consideram o resultado completo. Mensagens não incluem SQL, stack trace,
+credenciais, caminhos internos ou o conteúdo das células.
+
+Valores destinados a colunas `Numeric(18,6)` devem caber em até 12 algarismos na
+parte inteira e 6 casas decimais. A pré-validação rejeita excesso de precisão ou
+escala, sem arredondamento silencioso.
+
+### Comparação cadastral
+
+- `MATERIAS_PRIMAS/CRIAR`: código ausente e nome sem conflito;
+- `MATERIAS_PRIMAS/ATUALIZAR`: código existente, com lista dos campos realmente
+  diferentes;
+- `MATERIAS_PRIMAS/DESATIVAR`: MP ativa gera ação; MP já inativa gera
+  `SEM_ALTERACAO`;
+- `NUTRIENTES/CRIAR`: código ausente e nome sem conflito;
+- `NUTRIENTES/ATUALIZAR`: código existente; mudança de unidade é rejeitada se o
+  nutriente já participa de alguma composição;
+- `COMPOSICAO_NUTRICIONAL/CRIAR`: o par de códigos deve ser novo;
+- `COMPOSICAO_NUTRICIONAL/ATUALIZAR`: o par deve existir; valor idêntico gera
+  `SEM_ALTERACAO`;
+- `PRECOS_MP/CRIAR`: o intervalo não pode sobrepor outro intervalo do arquivo ou
+  do banco. As duas extremidades são inclusivas: se um período termina em
+  `2026-01-31`, outro iniciado em `2026-01-31` conflita; o início em `2026-02-01`
+  é permitido. Um período sem data final conflita com qualquer período posterior
+  da mesma matéria-prima, e dois períodos abertos sempre conflitam. Todas as
+  sobreposições são diagnosticadas de modo determinístico, independentemente da
+  ordem física das linhas; a pré-validação não fecha períodos automaticamente.
+
+Entidades referenciadas podem ser resolvidas por uma ação `CRIAR` válida no mesmo
+workbook ou pelo código exato existente no banco. Uma criação com qualquer erro
+cadastral não torna seu código disponível para composições ou preços. Não há
+associação por nome semelhante. Matérias-primas inativas ou desativadas no lote
+não podem receber composição ou preço.
+
+### Ausência de reserva
+
+A pré-validação não cria token, staging, bloqueio ou reserva. O banco poderá mudar
+imediatamente depois da resposta. O Bloco 3 deverá repetir integralmente as
+validações dentro da mesma transação usada para confirmar o lote; um resultado
+válido desta etapa não garante que a confirmação futura continuará válida.
