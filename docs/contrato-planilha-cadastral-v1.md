@@ -144,3 +144,32 @@ A pré-validação não cria token, staging, bloqueio ou reserva. O banco poder�
 imediatamente depois da resposta. O Bloco 3 deverá repetir integralmente as
 validações dentro da mesma transação usada para confirmar o lote; um resultado
 válido desta etapa não garante que a confirmação futura continuará válida.
+
+## Preparação temporária
+
+`POST /api/v1/importacoes-cadastrais/preparar` repete integralmente o parser e a
+pré-validação. Uma planilha inválida não cria sessão. Para uma planilha válida, a
+API persiste somente o payload normalizado, seu resumo e os avisos, sem aplicar
+qualquer alteração cadastral e sem guardar os bytes do XLSX.
+
+Cada preparação cria uma sessão independente, mesmo quando o arquivo e seu hash
+são iguais. A resposta de criação é o único momento em que o token secreto é
+exibido. O banco guarda apenas seu SHA-256. O token possui 256 bits aleatórios e
+será comparado em tempo constante pela futura confirmação, que será idempotente
+por sessão. A sessão começa como `PENDENTE` e expira após 24 horas.
+
+`GET /api/v1/importacoes-cadastrais/{sessao_id}` retorna somente o UUID público,
+estado, hash do arquivo, versão do contrato, resumo, total de operações, avisos e
+datas. Nunca retorna token, digest do token ou payload normalizado. Uma sessão
+pendente consultada depois do prazo passa logicamente a `EXPIRADA` sem alterar
+matérias-primas, nutrientes, composições ou preços.
+
+A decisão de vencimento usa o relógio do PostgreSQL. Consultar uma sessão
+`PENDENTE` vencida pode alterar exclusivamente seu estado para `EXPIRADA`;
+consultas seguintes são idempotentes. Sessões `CONFIRMADA`, `EXPIRADA` ou
+`FALHOU` são finais e nunca expiram nem retornam a `PENDENTE`. Uma confirmação
+futura deverá gravar `confirmado_em` e `resultado` na mesma transição. Uma falha
+futura deverá guardar apenas um diagnóstico seguro em `resultado`.
+
+O Bloco 3A não possui endpoint de confirmação. Portanto, nenhuma operação
+cadastral pode ser aplicada a partir de uma sessão preparada nesta etapa.

@@ -25,6 +25,7 @@ from schemas.apresentacao import (
 )
 from schemas.cenario import CenarioCustoCreate, CenarioCustoRead
 from schemas.otimizacao import ExecucaoOtimizacaoRead, OtimizacaoCreate, OtimizacaoResponse
+from schemas.importacao_cadastral import SessaoImportacaoPreparada, SessaoImportacaoRead
 
 __all__ = [
     "ComposicaoCreate",
@@ -51,4 +52,6 @@ __all__ = [
     "ExecucaoOtimizacaoRead",
     "OtimizacaoCreate",
     "OtimizacaoResponse",
+    "SessaoImportacaoPreparada",
+    "SessaoImportacaoRead",
 ]

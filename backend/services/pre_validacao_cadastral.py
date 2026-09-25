@@ -177,7 +177,7 @@ def _finalizar(versao, digest, dados, diagnosticos, propostas, erros_por_linha):
         diagnosticos_total > MAX_DIAGNOSTICOS_RESPOSTA
         or operacoes_total > MAX_OPERACOES_RESPOSTA
     )
-    return {
+    resposta = {
         "versao": versao,
         "sha256": digest,
         "valido_para_confirmacao": erros == 0,
@@ -188,9 +188,15 @@ def _finalizar(versao, digest, dados, diagnosticos, propostas, erros_por_linha):
         "diagnosticos_total": diagnosticos_total,
         "resultado_truncado": truncado,
     }
+    internos = {
+        "dados": dados,
+        "operacoes": operacoes,
+        "diagnosticos": diagnosticos,
+    }
+    return resposta, internos
 
 
-def pre_validar_planilha_cadastral(
+def _pre_validar_planilha_cadastral(
     conteudo: bytes,
     nome_arquivo: str,
     db: Session,
@@ -486,4 +492,28 @@ def pre_validar_planilha_cadastral(
 
     return _finalizar(
         estrutural["versao"], digest, dados, diagnosticos, propostas, erros_por_linha
+    )
+
+
+def pre_validar_planilha_cadastral(
+    conteudo: bytes,
+    nome_arquivo: str,
+    db: Session,
+    digest_arquivo: str | None = None,
+) -> dict:
+    resposta, _ = _pre_validar_planilha_cadastral(
+        conteudo, nome_arquivo, db, digest_arquivo
+    )
+    return resposta
+
+
+def pre_validar_planilha_cadastral_completo(
+    conteudo: bytes,
+    nome_arquivo: str,
+    db: Session,
+    digest_arquivo: str | None = None,
+) -> tuple[dict, dict]:
+    """Retorna dados internos somente para staging; nunca deve ser resposta HTTP."""
+    return _pre_validar_planilha_cadastral(
+        conteudo, nome_arquivo, db, digest_arquivo
     )
