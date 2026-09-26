@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 pandas
-pulp
+pulp==3.3.2
 openpyxl
 python-dotenv
 python-multipart

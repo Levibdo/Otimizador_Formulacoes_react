@@ -17,6 +17,7 @@ from routers import (
     projetos_router,
     regulatorio_router,
     otimizacoes_router,
+    importacoes_cadastrais_router,
 )
 
 
@@ -34,6 +35,7 @@ app.include_router(apresentacoes_router)
 app.include_router(cenarios_router)
 app.include_router(regulatorio_router)
 app.include_router(otimizacoes_router)
+app.include_router(importacoes_cadastrais_router)
 
 origins = os.getenv(
     "CORS_ORIGINS",

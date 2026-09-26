@@ -12,6 +12,7 @@ from models.apresentacao import (
 )
 from models.cenario import CenarioCusto
 from models.regulatorio import CategoriaProduto, ComponenteRegulatorio, ComposicaoComponenteMP, RegraRegulatoria
+from models.importacao_cadastral import SessaoImportacaoCadastral
 
 __all__ = [
     "ComposicaoMateriaPrima",
@@ -29,4 +30,5 @@ __all__ = [
     "ComponenteRegulatorio",
     "ComposicaoComponenteMP",
     "RegraRegulatoria",
+    "SessaoImportacaoCadastral",
 ]

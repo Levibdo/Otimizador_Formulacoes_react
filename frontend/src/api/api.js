@@ -212,3 +212,49 @@ export async function criarCenario(payload) {
   const res = await axios.post(`${API_BASE}/api/v1/cenarios`, payload);
   return res.data;
 }
+
+export async function baixarTemplateImportacaoCadastral(signal) {
+  const res = await axios.get(`${API_BASE}/api/v1/importacoes-cadastrais/template`, {
+    responseType: 'blob',
+    signal,
+  });
+  return res.data;
+}
+
+function formularioImportacao(arquivo) {
+  const dados = new FormData();
+  dados.append('arquivo', arquivo);
+  return dados;
+}
+
+export async function validarImportacaoCadastral(arquivo, signal) {
+  const res = await axios.post(
+    `${API_BASE}/api/v1/importacoes-cadastrais/validar`,
+    formularioImportacao(arquivo),
+    { signal }
+  );
+  return res.data;
+}
+
+export async function prepararImportacaoCadastral(arquivo, signal) {
+  const res = await axios.post(
+    `${API_BASE}/api/v1/importacoes-cadastrais/preparar`,
+    formularioImportacao(arquivo),
+    { signal }
+  );
+  return res.data;
+}
+
+export async function consultarSessaoImportacaoCadastral(sessaoId, signal) {
+  const res = await axios.get(`${API_BASE}/api/v1/importacoes-cadastrais/${sessaoId}`, { signal });
+  return res.data;
+}
+
+export async function confirmarImportacaoCadastral(sessaoId, token, signal) {
+  const res = await axios.post(
+    `${API_BASE}/api/v1/importacoes-cadastrais/${sessaoId}/confirmar`,
+    { token },
+    { signal }
+  );
+  return res.data;
+}
