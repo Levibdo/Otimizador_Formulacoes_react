@@ -10,7 +10,8 @@ from services.pre_validacao_cadastral import pre_validar_planilha_cadastral
 from services.planilha_cadastral import MAX_ARQUIVO_BYTES, gerar_template_cadastral
 from services.staging_importacao_cadastral import PlanilhaInvalidaError, preparar_sessao
 from repositories.importacao_cadastral_repository import ImportacaoCadastralRepository
-from schemas.importacao_cadastral import SessaoImportacaoPreparada, SessaoImportacaoRead
+from schemas.importacao_cadastral import (ConfirmacaoImportacaoRequest, SessaoImportacaoPreparada, SessaoImportacaoRead)
+from services.confirmacao_importacao_cadastral import (ConflitoSessao, CredenciaisSessaoInvalidas, confirmar_sessao, registrar_falha_tecnica)
 
 
 router = APIRouter(prefix="/api/v1/importacoes-cadastrais", tags=["Importação cadastral"])
@@ -142,3 +143,34 @@ def consultar_sessao(sessao_id: UUID, db: Session = Depends(get_db)):
             status_code=500,
             detail="Não foi possível consultar a sessão de importação.",
         ) from exc
+
+
+@router.post("/{sessao_id:uuid}/confirmar")
+def confirmar_importacao(
+    sessao_id: UUID, dados: ConfirmacaoImportacaoRequest, db: Session = Depends(get_db),
+):
+    try:
+        resultado = confirmar_sessao(db, sessao_id, dados.token.get_secret_value())
+        db.commit()
+        return resultado
+    except CredenciaisSessaoInvalidas as exc:
+        db.rollback()
+        raise HTTPException(404, "Sessão ou credencial de confirmação inválida.") from exc
+    except ConflitoSessao as exc:
+        db.commit()
+        raise HTTPException(409, exc.mensagem) from exc
+    except Exception as exc:
+        db.rollback()
+        try:
+            registrar_falha_tecnica(db, sessao_id)
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("Não foi possível registrar a falha técnica da importação cadastral.")
+        logger.exception("Falha técnica na confirmação da importação cadastral.")
+        raise HTTPException(500, "Não foi possível confirmar a importação cadastral.") from exc
+
+
+@router.post("/{sessao_id}/confirmar", include_in_schema=False)
+def confirmar_importacao_uuid_invalido(sessao_id: str):
+    raise HTTPException(404, "Sessão ou credencial de confirmação inválida.")

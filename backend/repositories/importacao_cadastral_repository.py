@@ -19,17 +19,21 @@ class ImportacaoCadastralRepository:
         self.db.refresh(sessao)
         return sessao
 
-    def obter(self, sessao_id: UUID) -> SessaoImportacaoCadastral | None:
-        return self.db.scalar(
-            select(SessaoImportacaoCadastral).where(
-                SessaoImportacaoCadastral.uuid_publico == sessao_id
-            )
+    def obter(self, sessao_id: UUID, bloquear: bool = False) -> SessaoImportacaoCadastral | None:
+        query = select(SessaoImportacaoCadastral).where(
+            SessaoImportacaoCadastral.uuid_publico == sessao_id
         )
+        if bloquear:
+            query = query.with_for_update()
+        return self.db.scalar(query)
 
     @staticmethod
     def token_valido(sessao: SessaoImportacaoCadastral, token: str) -> bool:
+        alfabeto = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        formato_valido = len(token) == 43 and all(caractere in alfabeto for caractere in token)
         digest = sha256(token.encode("utf-8")).hexdigest()
-        return compare_digest(sessao.token_hash, digest)
+        corresponde = compare_digest(sessao.token_hash, digest)
+        return bool(formato_valido & corresponde)
 
     def marcar_expirada(self, sessao: SessaoImportacaoCadastral) -> bool:
         agora = self.db.scalar(select(func.now()))

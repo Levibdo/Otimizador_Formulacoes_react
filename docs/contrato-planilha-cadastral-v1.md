@@ -173,3 +173,28 @@ futura deverá guardar apenas um diagnóstico seguro em `resultado`.
 
 O Bloco 3A não possui endpoint de confirmação. Portanto, nenhuma operação
 cadastral pode ser aplicada a partir de uma sessão preparada nesta etapa.
+
+## Confirmação transacional
+
+`POST /api/v1/importacoes-cadastrais/{sessao_id}/confirmar` recebe somente o
+`token`. A sessão é bloqueada com `SELECT FOR UPDATE`; o token é comparado em
+tempo constante e nunca é persistido ou retornado. UUID inexistente e token
+incorreto recebem a mesma resposta genérica.
+
+A confirmação bloqueia, nesta ordem, `nutrientes`, `materias_primas`,
+`composicoes_materias_primas` e `precos_materias_primas` em modo
+`SHARE ROW EXCLUSIVE`. O bloqueio serializa escritores durante a revalidação e a
+aplicação, protegendo especialmente intervalos de preços, que não possuem uma
+constraint de exclusão. O custo é reduzir temporariamente a concorrência de
+escrita cadastral; consultas permanecem disponíveis.
+
+O XLSX não é armazenado nem reutilizado. O servidor reconstrói o contrato a
+partir do payload canônico, revalida códigos e regras contra o PostgreSQL e
+aplica, em transação única, nutrientes, matérias-primas, composições, preços e,
+por último, desativações. Revalidação conflitante marca a sessão como `FALHOU`
+sem alterar cadastros. Falha técnica desfaz primeiro toda a transação e registra
+um diagnóstico genérico em transação separada.
+
+Uma sessão `CONFIRMADA` com o token correto retorna o resultado persistido sem
+reaplicar operações. Assim, confirmações repetidas e concorrentes da mesma
+sessão são idempotentes.

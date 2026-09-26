@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, SecretStr
 
 
 StatusSessaoImportacao = Literal["PENDENTE", "CONFIRMADA", "EXPIRADA", "FALHOU"]
@@ -24,3 +24,8 @@ class SessaoImportacaoRead(BaseModel):
 
 class SessaoImportacaoPreparada(SessaoImportacaoRead):
     token_confirmacao: str
+
+
+class ConfirmacaoImportacaoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    token: SecretStr
