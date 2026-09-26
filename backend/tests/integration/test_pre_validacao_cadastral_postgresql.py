@@ -10,7 +10,7 @@ from services.planilha_cadastral import gerar_template_cadastral
 
 
 def planilha(mps=(), nutrientes=(), composicoes=(), precos=()):
-    workbook = load_workbook(io.BytesIO(gerar_template_cadastral()))
+    workbook = load_workbook(io.BytesIO(gerar_template_cadastral("1.0")))
     for aba in ("MATERIAS_PRIMAS", "NUTRIENTES", "COMPOSICAO_NUTRICIONAL", "PRECOS_MP"):
         ws = workbook[aba]
         ws.delete_rows(2, max(ws.max_row - 1, 0))

@@ -61,10 +61,10 @@ def baixar_template():
         content=conteudo,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": 'attachment; filename="template-cadastral-v1.0.xlsx"',
+            "Content-Disposition": 'attachment; filename="template-cadastral-v1.1.xlsx"',
             "Content-Security-Policy": "default-src 'none'",
             "X-Content-Type-Options": "nosniff",
-            "X-Template-Version": "1.0",
+            "X-Template-Version": "1.1",
         },
     )
 

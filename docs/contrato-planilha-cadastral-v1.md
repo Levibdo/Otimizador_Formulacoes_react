@@ -1,8 +1,27 @@
-# Contrato da planilha cadastral 1.0
+# Contrato da planilha cadastral 1.x
 
 Este contrato cobre apenas a leitura e a validação estrutural de arquivos `.xlsx`.
 O parser não consulta nem altera o PostgreSQL, não executa `commit` e não infere
 operações. O importador legado de matérias-primas permanece disponível.
+
+## Compatibilidade de versões
+
+| Versão declarada | Abas exigidas | Finalidade |
+| --- | ---: | --- |
+| `1.0` | 5 | Contrato original de matérias-primas, nutrientes, composição nutricional e preços. |
+| `1.1` | 10 | Mantém integralmente as cinco abas v1.0 e acrescenta cinco abas regulatórias. |
+
+O parser lê `VERSAO_TEMPLATE` em `LEIA_ME` antes de escolher o schema. O valor
+deve ser texto literal; espaços externos são removidos, mas números, booleanos,
+datas e fórmulas são rejeitados. A versão não é inferida. V1.0 rejeita abas
+regulatórias; v1.1 exige todas elas. Versão
+ausente ou desconhecida, aba ausente, adicional, duplicada, fora de ordem ou com
+nome estruturalmente inválido torna o arquivo inválido.
+
+O download padrão gera v1.1. A função geradora ainda produz v1.0 explicitamente
+para round-trip e compatibilidade. O Bloco 1 valida apenas estrutura, tipos e
+coerência intrínseca: a pré-validação PostgreSQL e a aplicação dos cadastros
+regulatórios pertencem aos blocos seguintes.
 
 ## Regras gerais
 
@@ -198,3 +217,84 @@ um diagnóstico genérico em transação separada.
 Uma sessão `CONFIRMADA` com o token correto retorna o resultado persistido sem
 reaplicar operações. Assim, confirmações repetidas e concorrentes da mesma
 sessão são idempotentes.
+
+
+## Extensão regulatória v1.1
+
+As cinco primeiras abas e seus comportamentos permanecem idênticos ao v1.0. A
+v1.1 acrescenta, nesta ordem:
+
+| Aba | Colunas, na ordem | Ações |
+| --- | --- | --- |
+| `CATEGORIAS_PRODUTO` | `ACAO`, `CODIGO`, `NOME`, `DESCRICAO` | `CRIAR`, `ATUALIZAR`, `DESATIVAR` |
+| `COMPONENTES_REGULATORIOS` | `ACAO`, `CODIGO`, `NOME`, `DESCRICAO` | `CRIAR`, `ATUALIZAR`, `DESATIVAR` |
+| `COMPOSICAO_COMPONENTES_MP` | `ACAO`, `MATERIA_PRIMA_CODIGO`, `COMPONENTE_CODIGO`, `DATA_REFERENCIA`, `SITUACAO`, `CONCENTRACAO`, `FONTE`, `OBSERVACAO` | `CRIAR`, `DESATIVAR` |
+| `REGRAS_REGULATORIAS_MP` | `ACAO`, `CATEGORIA_CODIGO`, `MATERIA_PRIMA_CODIGO`, `TRATAMENTO`, `MINIMO`, `MAXIMO`, `JUSTIFICATIVA`, `REFERENCIA_NORMATIVA`, `VIGENCIA_INICIO`, `VIGENCIA_FIM` | `CRIAR`, `ATUALIZAR`, `DESATIVAR` |
+| `REGRAS_REGULATORIAS_COMPONENTE` | `ACAO`, `CATEGORIA_CODIGO`, `COMPONENTE_CODIGO`, `TRATAMENTO`, `MINIMO`, `MAXIMO`, `JUSTIFICATIVA`, `REFERENCIA_NORMATIVA`, `VIGENCIA_INICIO`, `VIGENCIA_FIM` | `CRIAR`, `ATUALIZAR`, `DESATIVAR` |
+
+`SEM_ALTERACAO` nunca é uma ação da planilha; é resultado calculado em etapa
+posterior. Não existe reativação implícita. `CRIAR` não reativa, `ATUALIZAR` não
+muda atividade e `DESATIVAR` expressa somente a desativação.
+
+### Catálogos regulatórios
+
+Códigos são texto, normalizados para uppercase, começam por letra e aceitam
+letras, números e `_`, com até 50 caracteres. `CRIAR` exige nome. Em
+`ATUALIZAR`, nome e descrição vazios preservam o valor existente; ao menos um
+deles deve ser informado. `DESATIVAR` aceita somente o código.
+
+Exemplos: `CRIAR | FICT_CATEGORIA | Categoria fictícia | Sem alegação normativa`
+e `DESATIVAR | FICT_COMPONENTE | [vazio] | [vazio]`.
+
+### Composição regulatória
+
+A chave natural é MP + componente + data de referência. `CRIAR` exige data ISO
+textual `AAAA-MM-DD` e situação. `DESATIVAR` aceita somente a chave natural.
+
+| Situação | Concentração |
+| --- | --- |
+| `INFORMADO` | decimal explícito entre 0 e 100 |
+| `AUSENTE_CONFIRMADO` | zero explícito |
+| `DESCONHECIDO` | célula vazia, normalizada para `NULL` |
+
+Vazio nunca é convertido em zero. Decimais são preservados como texto decimal,
+sem passagem por `float`.
+
+### Regras regulatórias
+
+A aba define exclusivamente o tipo do alvo. Unidade e base não são colunas: o
+payload normalizado introduz `%` e `MASSA_MASSA`. IDs, revisão, predecessor,
+atividade e timestamps também não pertencem à planilha.
+
+- `PERMITIDA`: limites opcionais;
+- `LIMITADA`: exige ao menos mínimo ou máximo;
+- `OBRIGATORIA`: exige mínimo maior que zero;
+- `PROIBIDA`: aceita mínimo vazio ou zero; máximo vazio é normalizado para zero;
+- limites presentes ficam entre 0 e 100 e mínimo não supera máximo;
+- justificativa é obrigatória em `CRIAR` e `ATUALIZAR`;
+- datas são texto ISO; datas vazias representam extremos abertos;
+- `DESATIVAR` aceita apenas categoria, alvo e as duas extremidades da vigência;
+- em `ATUALIZAR`, categoria, alvo e período identificam a regra existente;
+- mudar o período exige `DESATIVAR` a regra anterior e `CRIAR` uma nova.
+
+Exemplo: `CRIAR | FICT_CATEGORIA | FICT_COMPONENTE | PROIBIDA | [vazio] |
+[vazio] | Exemplo fictício | [vazio] | 2026-01-01 | [vazio]`.
+
+Existência, atividade, duplicidade com o banco, sobreposição de vigência e
+resolução das referências não são decididas pelo parser estrutural. Essas regras
+pertencem à pré-validação PostgreSQL do Bloco 2. Este bloco não insere, atualiza,
+desativa ou reserva qualquer cadastro.
+
+### Segurança e round-trip
+
+O limite de abas é orientado pela versão: exatamente 5 na v1.0 e exatamente 10
+na v1.1. Permanecem os limites de 5 MiB, 30 MiB descomprimidos, 200 entradas ZIP,
+razão 100:1, teto absoluto de 10 abas, 5.000 linhas por aba, 12 colunas por aba
+e 100.000 células. Os limites são aplicados antes de confiar na versão declarada
+e abrangem `LEIA_ME`. Abas ocultas ou muito ocultas, fórmulas, macros, links
+externos, entradas ZIP duplicadas, arquivos criptografados, caminhos internos
+inválidos e workbook malformado são rejeitados.
+
+A reconstrução canônica escolhe o template pela versão persistida. Ordem de abas
+e linhas é determinística; códigos textuais com zeros, Unicode, decimais, zero
+explícito, vazio, datas ISO e booleanos v1.0 são preservados.

@@ -8,11 +8,11 @@ from openpyxl import load_workbook
 
 from routers.importacoes_cadastrais import router
 from services import planilha_cadastral as modulo
-from services.planilha_cadastral import ABAS, gerar_template_cadastral, parsear_planilha_cadastral
+from services.planilha_cadastral import ABAS_V1_0, ABAS_V1_1, gerar_template_cadastral, parsear_planilha_cadastral
 
 
 def alterar_template(mutacao):
-    workbook = load_workbook(io.BytesIO(gerar_template_cadastral()))
+    workbook = load_workbook(io.BytesIO(gerar_template_cadastral("1.0")))
     mutacao(workbook)
     saida = io.BytesIO()
     workbook.save(saida)
@@ -24,9 +24,9 @@ def mensagens(resultado):
 
 
 def test_template_ficticio_obedece_contrato_e_parser_normaliza():
-    conteudo = gerar_template_cadastral()
+    conteudo = gerar_template_cadastral("1.0")
     workbook = load_workbook(io.BytesIO(conteudo), data_only=False)
-    assert workbook.sheetnames == list(ABAS)
+    assert workbook.sheetnames == list(ABAS_V1_0)
     assert all(cell.data_type != "f" for ws in workbook for row in ws.iter_rows() for cell in row)
 
     resultado = parsear_planilha_cadastral(conteudo, "cadastros.xlsx")
@@ -49,8 +49,8 @@ def test_endpoint_baixa_template_sem_banco():
     resposta = TestClient(app).get("/api/v1/importacoes-cadastrais/template")
     assert resposta.status_code == 200
     assert resposta.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    assert resposta.headers["x-template-version"] == "1.0"
-    assert resposta.headers["content-disposition"] == 'attachment; filename="template-cadastral-v1.0.xlsx"'
+    assert resposta.headers["x-template-version"] == "1.1"
+    assert resposta.headers["content-disposition"] == 'attachment; filename="template-cadastral-v1.1.xlsx"'
     assert "/" not in resposta.headers["content-disposition"]
     assert resposta.headers["x-content-type-options"] == "nosniff"
     rota = next(item for item in router.routes if item.path.endswith("/template"))
@@ -65,7 +65,7 @@ def test_rejeita_extensao_conteudo_vazio_e_xlsx_corrompido():
 
 
 def test_rejeita_macro_antes_de_abrir_workbook():
-    pacote = io.BytesIO(gerar_template_cadastral())
+    pacote = io.BytesIO(gerar_template_cadastral("1.0"))
     with zipfile.ZipFile(pacote, "a") as arquivo:
         arquivo.writestr("xl/vbaProject.bin", "macro fictícia".encode())
     resultado = parsear_planilha_cadastral(pacote.getvalue(), "dados.xlsx")
@@ -82,9 +82,8 @@ def test_rejeita_versao_aba_ausente_e_aba_desconhecida():
 
     resultado = parsear_planilha_cadastral(alterar_template(mutacao), "dados.xlsx")
     assert resultado["valido"] is False
-    assert any(item["aba"] == "NUTRIENTES" and "obrigatória ausente" in item["mensagem"] for item in resultado["diagnosticos"])
-    assert any(item["aba"] == "INTRUSA" and "desconhecida" in item["mensagem"] for item in resultado["diagnosticos"])
-    assert any("Quantidade de abas" in item["mensagem"] for item in resultado["diagnosticos"])
+    # Versão desconhecida é rejeitada antes da seleção de qualquer schema;
+    # a estrutura não é inferida silenciosamente.
     assert any("Versão do template" in item["mensagem"] for item in resultado["diagnosticos"])
 
 
@@ -220,7 +219,7 @@ def test_rejeita_formula_com_diagnostico_localizado():
 
 
 def test_aplica_limites_de_tamanho_dimensoes_e_entradas_zip(monkeypatch):
-    conteudo = gerar_template_cadastral()
+    conteudo = gerar_template_cadastral("1.0")
     monkeypatch.setattr(modulo, "MAX_ARQUIVO_BYTES", len(conteudo) - 1)
     assert "5 MiB" in mensagens(parsear_planilha_cadastral(conteudo, "dados.xlsx"))[0]
 
@@ -270,7 +269,7 @@ def test_dados_ausentes_nao_sao_inferidos_nem_removidos():
 
 
 def test_resultado_do_parser_e_deterministico():
-    conteudo = gerar_template_cadastral()
+    conteudo = gerar_template_cadastral("1.0")
     primeiro = parsear_planilha_cadastral(conteudo, "dados.xlsx")
     segundo = parsear_planilha_cadastral(conteudo, "dados.xlsx")
     assert primeiro == segundo

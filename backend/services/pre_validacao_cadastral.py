@@ -205,6 +205,12 @@ def _pre_validar_planilha_cadastral(
     digest = digest_arquivo or sha256(conteudo).hexdigest()
     estrutural = parsear_planilha_cadastral(conteudo, nome_arquivo)
     dados = estrutural["dados"]
+    if estrutural["versao"] == "1.1" and estrutural["valido"]:
+        estrutural["diagnosticos"].append(_diagnostico(
+            "ERRO", "GERAL",
+            "O contrato 1.1 foi validado estruturalmente, mas a pré-validação regulatória pertence ao Bloco 2.",
+        ))
+        estrutural["valido"] = False
     diagnosticos = [
         item
         for item in estrutural["diagnosticos"]

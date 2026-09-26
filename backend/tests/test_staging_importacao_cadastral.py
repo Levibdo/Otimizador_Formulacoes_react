@@ -24,7 +24,7 @@ from services.staging_importacao_cadastral import preparar_sessao, serializar_ca
 
 
 def planilha_valida():
-    workbook = load_workbook(io.BytesIO(gerar_template_cadastral()))
+    workbook = load_workbook(io.BytesIO(gerar_template_cadastral("1.0")))
     for aba in ("MATERIAS_PRIMAS", "NUTRIENTES", "COMPOSICAO_NUTRICIONAL", "PRECOS_MP"):
         ws = workbook[aba]
         if ws.max_row > 1:
@@ -218,3 +218,18 @@ def test_token_nao_aparece_na_representacao_do_model(client, db):
     ).json()
     sessao = db.scalar(select(SessaoImportacaoCadastral))
     assert preparada["token_confirmacao"] not in repr(sessao)
+
+
+def test_preparar_v11_nao_cria_sessao_nem_token(client, db, monkeypatch):
+    def token_proibido(*args, **kwargs):
+        raise AssertionError("não deve gerar token para v1.1 bloqueada")
+    monkeypatch.setattr("services.staging_importacao_cadastral.secrets.token_urlsafe", token_proibido)
+    antes = db.scalar(select(func.count()).select_from(SessaoImportacaoCadastral))
+    resposta = client.post(
+        "/api/v1/importacoes-cadastrais/preparar",
+        files={"arquivo": ("regulatorio.xlsx", gerar_template_cadastral("1.1"))},
+    )
+    assert resposta.status_code == 422
+    assert resposta.json()["detail"]["validacao"]["versao"] == "1.1"
+    depois = db.scalar(select(func.count()).select_from(SessaoImportacaoCadastral))
+    assert depois == antes

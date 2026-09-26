@@ -30,18 +30,40 @@ class RevalidacaoFalhou(ConflitoSessao):
 
 
 def _xlsx_do_payload(payload):
-    workbook = load_workbook(io.BytesIO(gerar_template_cadastral()))
+    versao = payload.get("versao")
+    if versao not in {"1.0", "1.1"}:
+        raise ValueError("Versão persistida ausente ou não suportada.")
+    workbook = load_workbook(io.BytesIO(gerar_template_cadastral(versao)))
     colunas = {
         "MATERIAS_PRIMAS": ("acao", "codigo", "nome", "ativa"),
         "NUTRIENTES": ("acao", "codigo", "nome", "unidade"),
         "COMPOSICAO_NUTRICIONAL": ("acao", "materia_prima_codigo", "nutriente_codigo", "valor"),
         "PRECOS_MP": ("acao", "materia_prima_codigo", "preco_kg", "vigencia_inicio", "vigencia_fim"),
     }
+    if versao == "1.1":
+        colunas.update({
+            "CATEGORIAS_PRODUTO": ("acao", "codigo", "nome", "descricao"),
+            "COMPONENTES_REGULATORIOS": ("acao", "codigo", "nome", "descricao"),
+            "COMPOSICAO_COMPONENTES_MP": (
+                "acao", "materia_prima_codigo", "componente_codigo", "data_referencia",
+                "situacao", "concentracao", "fonte", "observacao",
+            ),
+            "REGRAS_REGULATORIAS_MP": (
+                "acao", "categoria_codigo", "materia_prima_codigo", "tratamento",
+                "minimo", "maximo", "justificativa", "referencia_normativa",
+                "vigencia_inicio", "vigencia_fim",
+            ),
+            "REGRAS_REGULATORIAS_COMPONENTE": (
+                "acao", "categoria_codigo", "componente_codigo", "tratamento",
+                "minimo", "maximo", "justificativa", "referencia_normativa",
+                "vigencia_inicio", "vigencia_fim",
+            ),
+        })
     for aba, campos in colunas.items():
         ws = workbook[aba]
         if ws.max_row > 1:
             ws.delete_rows(2, ws.max_row - 1)
-        for item in sorted(payload["dados"][aba], key=lambda valor: valor["linha"]):
+        for item in sorted(payload["dados"].get(aba, []), key=lambda valor: valor["linha"]):
             for coluna, campo in enumerate(campos, start=1):
                 valor = item.get(campo)
                 if campo == "ativa" and isinstance(valor, bool):

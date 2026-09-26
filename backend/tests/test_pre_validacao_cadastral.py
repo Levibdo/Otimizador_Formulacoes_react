@@ -20,7 +20,7 @@ from services.pre_validacao_cadastral import pre_validar_planilha_cadastral
 
 
 def planilha(mps=(), nutrientes=(), composicoes=(), precos=()):
-    workbook = load_workbook(io.BytesIO(gerar_template_cadastral()))
+    workbook = load_workbook(io.BytesIO(gerar_template_cadastral("1.0")))
     for aba in ("MATERIAS_PRIMAS", "NUTRIENTES", "COMPOSICAO_NUTRICIONAL", "PRECOS_MP"):
         ws = workbook[aba]
         if ws.max_row > 1:
@@ -368,7 +368,7 @@ def test_endpoint_invalido_nao_expoe_detalhe_interno(db, monkeypatch):
     with TestClient(app, raise_server_exceptions=False) as client:
         resposta = client.post(
             "/api/v1/importacoes-cadastrais/validar",
-            files={"arquivo": ("dados.xlsx", gerar_template_cadastral())},
+            files={"arquivo": ("dados.xlsx", gerar_template_cadastral("1.0"))},
         )
     assert resposta.status_code == 500
     assert resposta.json() == {"detail": "Não foi possível pré-validar a planilha cadastral."}
@@ -391,3 +391,23 @@ def test_endpoint_calcula_sha256_dos_bytes_exatos_recebidos(db):
         )
     assert resposta.status_code == 200
     assert resposta.json()["sha256"] == hashlib.sha256(conteudo).hexdigest()
+
+
+def test_endpoint_validar_v11_retorna_bloqueio_controlado_sem_consultar_ou_gravar(db, monkeypatch):
+    def consulta_proibida(*args, **kwargs):
+        raise AssertionError("v1.1 não deve consultar cadastros no Bloco 1")
+    monkeypatch.setattr(modulo, "_consultar_estado", consulta_proibida)
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: iter((db,))
+    with TestClient(app) as client:
+        resposta = client.post(
+            "/api/v1/importacoes-cadastrais/validar",
+            files={"arquivo": ("regulatorio.xlsx", gerar_template_cadastral("1.1"))},
+        )
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["versao"] == "1.1"
+    assert corpo["valido_para_confirmacao"] is False
+    assert any("Bloco 2" in item["mensagem"] for item in corpo["diagnosticos"])
+    assert db.scalar(select(func.count()).select_from(MateriaPrima)) == 0
