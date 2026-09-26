@@ -393,13 +393,12 @@ def test_endpoint_calcula_sha256_dos_bytes_exatos_recebidos(db):
     assert resposta.json()["sha256"] == hashlib.sha256(conteudo).hexdigest()
 
 
-def test_endpoint_validar_v11_retorna_bloqueio_controlado_sem_consultar_ou_gravar(db, monkeypatch):
-    def consulta_proibida(*args, **kwargs):
-        raise AssertionError("v1.1 não deve consultar cadastros no Bloco 1")
-    monkeypatch.setattr(modulo, "_consultar_estado", consulta_proibida)
+def test_endpoint_validar_v11_compara_banco_sem_gravar(db):
     app = FastAPI()
     app.include_router(router)
-    app.dependency_overrides[get_db] = lambda: iter((db,))
+    def override_get_db():
+        yield db
+    app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as client:
         resposta = client.post(
             "/api/v1/importacoes-cadastrais/validar",
@@ -408,6 +407,6 @@ def test_endpoint_validar_v11_retorna_bloqueio_controlado_sem_consultar_ou_grava
     assert resposta.status_code == 200
     corpo = resposta.json()
     assert corpo["versao"] == "1.1"
-    assert corpo["valido_para_confirmacao"] is False
-    assert any("Bloco 2" in item["mensagem"] for item in corpo["diagnosticos"])
+    assert corpo["valido_para_confirmacao"] is True
+    assert corpo["resumo"]["CATEGORIAS_PRODUTO"]["criar"] == 1
     assert db.scalar(select(func.count()).select_from(MateriaPrima)) == 0

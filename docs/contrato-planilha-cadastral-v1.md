@@ -298,3 +298,46 @@ inválidos e workbook malformado são rejeitados.
 A reconstrução canônica escolhe o template pela versão persistida. Ordem de abas
 e linhas é determinística; códigos textuais com zeros, Unicode, decimais, zero
 explícito, vazio, datas ISO e booleanos v1.0 são preservados.
+
+
+## Pré-validação PostgreSQL da v1.1
+
+O endpoint `/validar` compara as dez abas com o PostgreSQL sem inserir, atualizar
+ou excluir registros. As consultas são agrupadas por códigos e chaves presentes
+no arquivo e executadas com `no_autoflush`. O estado projetado aplica, em memória,
+as operações válidas na ordem do contrato: matérias-primas, nutrientes,
+categorias, componentes, composição nutricional, preços, composições regulatórias
+e regras por MP e por componente.
+
+Assim, uma composição ou regra pode referenciar um cadastro criado no mesmo
+arquivo. Uma referência inexistente, inativa, desativada pelo lote ou dependente
+de linha inválida é rejeitada. Objetos ORM consultados nunca são alterados e
+nenhum objeto projetado é adicionado à sessão.
+
+Categorias e componentes usam o código como chave. `CRIAR` idêntico a cadastro
+ativo resulta em `SEM_ALTERACAO`; conteúdo diferente conflita; cadastro inativo
+não é reativado. Em `ATUALIZAR`, campos vazios preservam os valores atuais.
+`DESATIVAR` de cadastro já inativo resulta em `SEM_ALTERACAO`.
+
+Composições regulatórias são imutáveis por MP, componente e data de referência.
+Conteúdo idêntico resulta em `SEM_ALTERACAO`; conteúdo diferente exige nova
+identidade e é rejeitado como atualização imutável. Comparações usam
+`Decimal`, preservando a distinção entre zero e `NULL`.
+
+Regras são identificadas por categoria, tipo de alvo, código do alvo e período,
+incluindo extremos abertos. `ATUALIZAR` representa uma futura revisão sem
+escolher ou gravar predecessor neste bloco. Sobreposições consideram o estado
+final projetado, permitindo `DESATIVAR` o período antigo e `CRIAR` o novo no
+mesmo lote.
+
+Os diagnósticos regulatórios usam códigos estáveis, incluindo
+`REGISTRO_NAO_ENCONTRADO`, `REGISTRO_INATIVO`,
+`REATIVACAO_NAO_SUPORTADA`, `CRIAR_CONFLITA_EXISTENTE`,
+`ATUALIZACAO_IMUTAVEL`, `REFERENCIA_INEXISTENTE`,
+`REFERENCIA_INATIVA`, `REFERENCIA_DESATIVADA_NO_LOTE`,
+`DEPENDENCIA_INVALIDA`, `REGRA_NAO_ENCONTRADA`, `REGRA_AMBIGUA` e
+`REGRA_SOBREPOSTA`.
+
+O endpoint `/preparar` permanece bloqueado para v1.1 com HTTP 422 e o código
+`PREPARACAO_V11_NAO_DISPONIVEL`. Ele não cria sessão nem token. O fluxo v1.0
+continua validando e preparando normalmente.
