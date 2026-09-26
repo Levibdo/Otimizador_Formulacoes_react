@@ -227,10 +227,10 @@ export default function MateriasPrimasTab() {
 
         <div className="border rounded p-4 space-y-3 bg-gray-50">
           <div>
-            <h3 className="font-medium">Importar Excel ou CSV</h3>
+            <h3 className="font-medium">Importação rápida de matérias-primas — formato legado</h3>
             <p className="text-xs text-gray-600">
               Aceita matriz transposta (MPs nas colunas) ou tabela vertical com Nome e Custo.
-              A importação é cancelada integralmente se houver erro ou conflito.
+              A importação é cancelada integralmente se houver erro ou conflito. Este formato não possui pré-visualização nem confirmação em duas etapas.
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">

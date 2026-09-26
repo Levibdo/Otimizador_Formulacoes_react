@@ -7,7 +7,8 @@ export default function Tabs({ tab, setTab }) {
     { id: "apresentacoes", label: "📦 Apresentações" },
     { id: "cenarios", label: "🧭 Cenários" },
     { id: "materias", label: "🧱 Matérias-Primas" },
-    { id: "regulatorio", label: "📋 Regulatório" }
+    { id: "regulatorio", label: "📋 Regulatório" },
+    { id: "importacao", label: "📥 Importação Cadastral" }
   ];
 
   return (
