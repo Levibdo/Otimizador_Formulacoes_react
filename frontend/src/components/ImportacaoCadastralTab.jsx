@@ -10,26 +10,24 @@ import {
   botoesPorEstado,
   erroConfirmacao,
   estadoAoTrocarArquivo,
-  hashesConferem,
   hashResumido,
   mensagemSeguraImportacao,
+  nomeAba,
+  nomeArquivoTemplate,
+  operacaoParaExibicao,
   pagina,
+  preparacaoConfere,
   respostaPertenceAoFluxo,
+  resultadoConfirmacaoValido,
   resumoDaValidacao,
+  totaisConfirmacao,
+  validacaoEstruturalValida,
   sessaoExpirada,
   validarArquivoSelecionado,
 } from "../utils/importacao-cadastral-ui.mjs";
 
 const TAMANHO_PAGINA = 20;
 const botao = "px-4 py-2 rounded font-medium disabled:bg-gray-300 disabled:text-gray-600 disabled:cursor-not-allowed";
-const nomesAba = {
-  MATERIAS_PRIMAS: "Matérias-primas",
-  NUTRIENTES: "Nutrientes",
-  COMPOSICAO_NUTRICIONAL: "Composição nutricional",
-  PRECOS_MP: "Preços",
-  GERAL: "Geral",
-};
-
 function formatarTamanho(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -43,9 +41,9 @@ function Paginacao({ dados, paginaAtual, setPaginaAtual, renderItem, vazio }) {
   return <div className="space-y-3">
     <div className="space-y-2">{bloco.itens.map(renderItem)}</div>
     <div className="flex items-center justify-between text-sm" aria-label="Paginação">
-      <button className="underline disabled:text-gray-400" disabled={bloco.atual === 1} onClick={() => setPaginaAtual(bloco.atual - 1)}>Anterior</button>
+      <button type="button" className="underline disabled:text-gray-400" disabled={bloco.atual === 1} onClick={() => setPaginaAtual(bloco.atual - 1)}>Anterior</button>
       <span>Página {bloco.atual} de {bloco.paginas} · {bloco.total} itens</span>
-      <button className="underline disabled:text-gray-400" disabled={bloco.atual === bloco.paginas} onClick={() => setPaginaAtual(bloco.atual + 1)}>Próxima</button>
+      <button type="button" className="underline disabled:text-gray-400" disabled={bloco.atual === bloco.paginas} onClick={() => setPaginaAtual(bloco.atual + 1)}>Próxima</button>
     </div>
   </div>;
 }
@@ -60,8 +58,11 @@ export default function ImportacaoCadastralTab({ aoConfirmar }) {
   const [confirmarAberto, setConfirmarAberto] = useState(false);
   const [paginaDiagnosticos, setPaginaDiagnosticos] = useState(1);
   const [paginaOperacoes, setPaginaOperacoes] = useState(1);
+  const [paginaAfetados, setPaginaAfetados] = useState(1);
   const [chaveInput, setChaveInput] = useState(0);
   const geracaoRef = useRef(0);
+  const botaoAbrirConfirmacaoRef = useRef(null);
+  const botaoConfirmarRef = useRef(null);
   const controladorRef = useRef(null);
   const ocupadoRef = useRef(false);
 
@@ -103,7 +104,7 @@ export default function ImportacaoCadastralTab({ aoConfirmar }) {
     const limpo = estadoAoTrocarArquivo(novo);
     setArquivo(limpo.arquivo); setValidacao(limpo.validacao); setSessao(limpo.sessao);
     setResultado(limpo.resultado); setConfirmarAberto(false);
-    setPaginaDiagnosticos(1); setPaginaOperacoes(1);
+    setPaginaDiagnosticos(1); setPaginaOperacoes(1); setPaginaAfetados(1);
     const erro = validarArquivoSelecionado(novo);
     setMensagem(erro || "Arquivo selecionado. Faça a validação antes de preparar.");
     setEstado(erro ? ESTADOS_IMPORTACAO.SEM_ARQUIVO : ESTADOS_IMPORTACAO.ARQUIVO_SELECIONADO);
@@ -111,17 +112,21 @@ export default function ImportacaoCadastralTab({ aoConfirmar }) {
 
   const botoes = botoesPorEstado(estado);
   const totais = useMemo(() => resumoDaValidacao(validacao), [validacao]);
+  const totaisGerais = useMemo(() => totaisConfirmacao(totais), [totais]);
+  useEffect(() => { if (confirmarAberto) botaoConfirmarRef.current?.focus(); }, [confirmarAberto]);
 
   const baixar = async () => {
     const req = iniciarRequisicao(); if (!req) return;
     setMensagem("");
     let url = null;
     try {
-      const blob = await baixarTemplateImportacaoCadastral(req.controlador.signal);
+      const resposta = await baixarTemplateImportacaoCadastral(req.controlador.signal);
       if (!respostaAtual(req)) return;
-      url = URL.createObjectURL(blob);
+      const tipoEsperado = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      if (!(resposta?.blob instanceof Blob) || resposta.blob.size === 0 || (resposta.contentType && !resposta.contentType.includes(tipoEsperado))) throw new Error("Resposta inválida");
+      url = URL.createObjectURL(resposta.blob);
       const link = document.createElement("a");
-      link.href = url; link.download = "template-cadastral-v1.0.xlsx"; link.click();
+      link.href = url; link.download = nomeArquivoTemplate(resposta.contentDisposition); link.click();
     } catch (erro) {
       if (respostaAtual(req)) { const texto = mensagemSeguraImportacao(erro, "download"); if (texto) setMensagem(texto); }
     } finally {
@@ -137,7 +142,7 @@ export default function ImportacaoCadastralTab({ aoConfirmar }) {
     try {
       const dados = await validarImportacaoCadastral(arquivo, req.controlador.signal);
       if (!respostaAtual(req)) return;
-      if (!dados || typeof dados.valido_para_confirmacao !== "boolean" || typeof dados.sha256 !== "string") throw new Error("Resposta inválida");
+      if (!validacaoEstruturalValida(dados)) throw new Error("Resposta inválida");
       setValidacao(dados);
       setEstado(dados.valido_para_confirmacao ? ESTADOS_IMPORTACAO.VALIDADO_APTO : ESTADOS_IMPORTACAO.VALIDADO_COM_ERROS);
       setMensagem(dados.valido_para_confirmacao ? "Validação concluída. Nenhum cadastro foi alterado." : "A planilha possui erros e não está pronta para preparação.");
@@ -153,12 +158,11 @@ export default function ImportacaoCadastralTab({ aoConfirmar }) {
     try {
       const dados = await prepararImportacaoCadastral(arquivo, req.controlador.signal);
       if (!respostaAtual(req)) return;
-      if (!dados?.sessao_id || !dados?.token_confirmacao || !dados?.expira_em) throw new Error("Resposta inválida");
-      if (!hashesConferem(validacao, dados)) {
+      if (!preparacaoConfere(validacao, dados)) {
         setSessao(null); setEstado(ESTADOS_IMPORTACAO.FALHA_DEFINITIVA);
-        setMensagem("O arquivo preparado não corresponde ao arquivo validado. Valide e prepare novamente."); return;
+        setMensagem("O arquivo, a versão ou o estado preparado não corresponde à validação. Valide e prepare novamente."); return;
       }
-      setSessao({ sessao_id: dados.sessao_id, token: dados.token_confirmacao, expira_em: dados.expira_em, resumo: dados.resumo, status: dados.status, arquivo_sha256: dados.arquivo_sha256 });
+      setSessao({ sessao_id: dados.sessao_id, token: dados.token_confirmacao, expira_em: dados.expira_em, resumo: dados.resumo, status: dados.status, versao: dados.versao, arquivo_sha256: dados.arquivo_sha256 });
       setEstado(ESTADOS_IMPORTACAO.PREPARADO);
       setMensagem("Sessão temporária preparada. Os cadastros ainda não foram alterados.");
     } catch (erro) {
@@ -179,7 +183,7 @@ export default function ImportacaoCadastralTab({ aoConfirmar }) {
     try {
       const dados = await confirmarImportacaoCadastral(id, token, req.controlador.signal);
       if (!respostaAtual(req)) return;
-      if (!dados || dados.status !== "CONFIRMADA") throw new Error("Resposta inválida");
+      if (!resultadoConfirmacaoValido(dados)) throw new Error("Resposta inválida");
       setSessao((atual) => atual ? { ...atual, token: null, status: "CONFIRMADA" } : null);
       setResultado(dados); setEstado(ESTADOS_IMPORTACAO.CONFIRMADO);
       setMensagem("Importação confirmada e aplicada em uma única transação."); aoConfirmar?.();
@@ -201,16 +205,15 @@ export default function ImportacaoCadastralTab({ aoConfirmar }) {
   const novaImportacao = () => {
     invalidarPendencias();
     setArquivo(null); setValidacao(null); setSessao(null); setResultado(null); setConfirmarAberto(false);
-    setMensagem(""); setEstado(ESTADOS_IMPORTACAO.SEM_ARQUIVO); setPaginaDiagnosticos(1); setPaginaOperacoes(1);
+    setMensagem(""); setEstado(ESTADOS_IMPORTACAO.SEM_ARQUIVO); setPaginaDiagnosticos(1); setPaginaOperacoes(1); setPaginaAfetados(1);
     setChaveInput((valor) => valor + 1);
   };
 
-  const totalConfirmacao = (campo) => totais.reduce((soma, item) => soma + item[campo], 0);
   const ocupado = [ESTADOS_IMPORTACAO.VALIDANDO, ESTADOS_IMPORTACAO.PREPARANDO, ESTADOS_IMPORTACAO.CONFIRMANDO].includes(estado) || ocupadoRef.current;
 
   return <div className="max-w-7xl mx-auto space-y-5">
     <section className="bg-white p-6 rounded shadow space-y-4">
-      <div><h2 className="text-xl font-semibold">Importação Cadastral</h2><p className="text-sm text-gray-600">Fluxo em duas etapas para matérias-primas, nutrientes, composição nutricional e preços.</p></div>
+      <div><h2 className="text-xl font-semibold">Importação Cadastral</h2><p className="text-sm text-gray-600">Modelo atual v1.1 para cadastros gerais e regulatórios. Arquivos v1.0 continuam aceitos.</p></div>
       <ol className="grid md:grid-cols-4 gap-2 text-sm" aria-label="Etapas da importação">
         {["1. Baixar modelo", "2. Validar sem gravar", "3. Preparar sessão", "4. Confirmar e aplicar"].map((texto) => <li key={texto} className="border rounded p-2 bg-gray-50">{texto}</li>)}
       </ol>
@@ -223,30 +226,31 @@ export default function ImportacaoCadastralTab({ aoConfirmar }) {
       </div>
       {arquivo && <p className="text-sm"><strong>Arquivo:</strong> {arquivo.name} · {formatarTamanho(arquivo.size)}</p>}
       <p className="text-sm text-blue-800">Validar somente lê o arquivo e o banco. Preparar cria uma sessão temporária de 24 horas. Somente confirmar altera os cadastros.</p>
-      {mensagem && <div role="status" className="border rounded p-3 bg-gray-50 text-sm">{mensagem}</div>}
+      {mensagem && <div role={[ESTADOS_IMPORTACAO.VALIDADO_COM_ERROS, ESTADOS_IMPORTACAO.FALHA_DEFINITIVA].includes(estado) ? "alert" : "status"} className="border rounded p-3 bg-gray-50 text-sm">{mensagem}</div>}
     </section>
 
     {validacao && <section className="bg-white p-6 rounded shadow space-y-4">
       <div className="flex flex-wrap justify-between gap-2"><h3 className="text-lg font-semibold">Resultado da validação</h3><span className="font-medium">{validacao.valido_para_confirmacao ? "✓ Apta para preparação" : "✕ Contém erros"}</span></div>
-      <p className="text-sm">SHA-256: <code title={validacao.sha256}>{hashResumido(validacao.sha256)}</code></p>
-      <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left border-b"><th className="p-2">Aba</th><th>Criar</th><th>Atualizar</th><th>Desativar</th><th>Sem alteração</th><th>Avisos</th><th>Erros</th></tr></thead><tbody>{totais.map((item) => <tr key={item.aba} className="border-b"><td className="p-2">{nomesAba[item.aba]}</td><td>{item.criar}</td><td>{item.atualizar}</td><td>{item.desativar}</td><td>{item.sem_alteracao}</td><td>{item.avisos}</td><td>{item.erros}</td></tr>)}</tbody></table></div>
+      <p className="text-sm"><strong>Versão:</strong> {validacao.versao} · <strong>SHA-256:</strong> <code title={validacao.sha256}>{hashResumido(validacao.sha256)}</code></p>
+      <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left border-b"><th className="p-2">Aba</th><th>Criar</th><th>Atualizar</th><th>Desativar</th><th>Sem alteração</th><th>Avisos</th><th>Erros</th></tr></thead><tbody>{totais.map((item) => <tr key={item.aba} className="border-b"><td className="p-2">{nomeAba(item.aba)}</td><td>{item.criar}</td><td>{item.atualizar}</td><td>{item.desativar}</td><td>{item.sem_alteracao}</td><td>{item.avisos}</td><td>{item.erros}</td></tr>)}</tbody></table></div>
       {validacao.resultado_truncado && <p className="border border-amber-300 bg-amber-50 p-3 text-sm">⚠ A API limitou a lista exibida. Os totais acima consideram todas as operações e todos os diagnósticos.</p>}
-      <div><h4 className="font-medium mb-2">Diagnósticos ({validacao.diagnosticos_total})</h4><Paginacao dados={validacao.diagnosticos || []} paginaAtual={paginaDiagnosticos} setPaginaAtual={setPaginaDiagnosticos} vazio="Nenhum aviso ou erro." renderItem={(item, indice) => <div key={`${item.aba}-${item.linha}-${item.coluna}-${indice}`} className="border rounded p-3 text-sm"><strong>{item.severidade === "ERRO" ? "✕ Erro" : "⚠ Aviso"}</strong> · {item.aba || "GERAL"}{item.linha ? ` · linha ${item.linha}` : ""}{item.coluna ? ` · coluna ${item.coluna}` : ""}{item.codigo ? ` · ${item.codigo}` : ""}<p>{item.mensagem}</p></div>} /></div>
-      <div><h4 className="font-medium mb-2">Operações previstas ({validacao.operacoes_total})</h4><Paginacao dados={validacao.operacoes || []} paginaAtual={paginaOperacoes} setPaginaAtual={setPaginaOperacoes} vazio="Nenhuma operação válida prevista." renderItem={(item, indice) => <div key={`${item.aba}-${item.linha}-${indice}`} className="border rounded p-3 text-sm"><strong>{item.resultado}</strong> · {item.aba} · linha {item.linha} · {item.codigo || "sem código"}{item.campos_alterados?.length ? ` · campos: ${item.campos_alterados.join(", ")}` : ""}</div>} /></div>
+      <div><h4 className="font-medium mb-2">Diagnósticos ({validacao.diagnosticos_total})</h4><Paginacao dados={validacao.diagnosticos || []} paginaAtual={paginaDiagnosticos} setPaginaAtual={setPaginaDiagnosticos} vazio="Nenhum aviso ou erro." renderItem={(item, indice) => <div key={`${item.aba}-${item.linha}-${item.coluna}-${indice}`} className="border rounded p-3 text-sm"><strong>{item.severidade === "ERRO" ? "✕ Erro" : "⚠ Aviso"}</strong> · {nomeAba(item.aba || "GERAL")}{item.linha ? ` · linha ${item.linha}` : ""}{item.coluna ? ` · coluna ${item.coluna}` : ""}{item.codigo ? ` · ${item.codigo}` : ""}<p>{item.mensagem}</p></div>} /></div>
+      <div><h4 className="font-medium mb-2">Operações previstas ({validacao.operacoes_total})</h4><Paginacao dados={validacao.operacoes || []} paginaAtual={paginaOperacoes} setPaginaAtual={setPaginaOperacoes} vazio="Nenhuma operação válida prevista." renderItem={(item, indice) => { const exibicao = operacaoParaExibicao(item, validacao.versao); return exibicao ? <div key={`${item.aba}-${item.linha}-${indice}`} className="border rounded p-3 text-sm"><strong>{exibicao.resultado}</strong> · {exibicao.aba}{exibicao.linha ? ` · linha ${exibicao.linha}` : ""} · {exibicao.codigo}{exibicao.campos.length ? ` · campos: ${exibicao.campos.join(", ")}` : ""}</div> : null; }} /></div>
       <button type="button" disabled={!botoes.preparar || ocupado} onClick={preparar} className={`${botao} bg-indigo-600 text-white`}>{ocupado ? "Preparando…" : "Preparar importação"}</button>
     </section>}
 
     {sessao && <section className="bg-white p-6 rounded shadow space-y-3">
-      <h3 className="text-lg font-semibold">Sessão de importação</h3><p className="text-sm"><strong>Estado do fluxo:</strong> {estado}</p><p className="text-sm"><strong>Status da sessão:</strong> {sessao.status}</p><p className="text-sm"><strong>Sessão:</strong> {sessao.sessao_id}</p><p className="text-sm"><strong>Expira em:</strong> {new Date(sessao.expira_em).toLocaleString("pt-BR")} (24 horas após a preparação)</p>
-      {sessao.status === "PENDENTE" && <button type="button" disabled={!botoes.confirmar || ocupado} onClick={() => setConfirmarAberto(true)} className={`${botao} bg-red-700 text-white`}>{estado === ESTADOS_IMPORTACAO.ERRO_REPETIVEL ? "Repetir confirmação com segurança" : "Revisar confirmação definitiva"}</button>}
+      <h3 className="text-lg font-semibold">Sessão de importação</h3><p className="text-sm"><strong>Versão:</strong> {sessao.versao}</p><p className="text-sm"><strong>Estado do fluxo:</strong> {estado}</p><p className="text-sm"><strong>Status da sessão:</strong> {sessao.status}</p><p className="text-sm"><strong>Sessão:</strong> {sessao.sessao_id}</p><p className="text-sm"><strong>Expira em:</strong> {new Date(sessao.expira_em).toLocaleString("pt-BR")} (24 horas após a preparação)</p>
+      {sessao.status === "PENDENTE" && <button ref={botaoAbrirConfirmacaoRef} type="button" disabled={!botoes.confirmar || ocupado} onClick={() => setConfirmarAberto(true)} className={`${botao} bg-red-700 text-white`}>{estado === ESTADOS_IMPORTACAO.ERRO_REPETIVEL ? "Repetir confirmação com segurança" : "Revisar confirmação definitiva"}</button>}
     </section>}
 
-    {confirmarAberto && sessao && <section role="dialog" aria-modal="true" aria-labelledby="titulo-confirmacao" className="bg-white border-2 border-red-300 p-6 rounded shadow space-y-3">
-      <h3 id="titulo-confirmacao" className="text-lg font-semibold">Confirmar aplicação definitiva</h3><p><strong>Arquivo:</strong> {arquivo?.name}</p><p><strong>Sessão:</strong> {sessao.sessao_id}</p>
-      <ul className="list-disc pl-6 text-sm"><li>Criar: {totalConfirmacao("criar")}</li><li>Atualizar: {totalConfirmacao("atualizar")}</li><li>Matérias-primas a desativar: {validacao?.resumo?.MATERIAS_PRIMAS?.desativar || 0}</li><li>Sem alteração: {totalConfirmacao("sem_alteracao")}</li></ul>
-      <p className="font-medium">As alterações serão aplicadas em uma única transação PostgreSQL.</p><div className="flex gap-3"><button disabled={ocupado} onClick={() => setConfirmarAberto(false)} className={`${botao} bg-gray-200`}>Cancelar</button><button disabled={!botoes.confirmar || ocupado} onClick={confirmar} className={`${botao} bg-red-700 text-white`}>Confirmar e aplicar</button></div>
+    {confirmarAberto && sessao && <section role="dialog" aria-modal="true" aria-labelledby="titulo-confirmacao" onKeyDown={(evento) => { if (evento.key === "Escape" && estado !== ESTADOS_IMPORTACAO.CONFIRMANDO) { setConfirmarAberto(false); botaoAbrirConfirmacaoRef.current?.focus(); } }} className="bg-white border-2 border-red-300 p-6 rounded shadow space-y-3">
+      <h3 id="titulo-confirmacao" className="text-lg font-semibold">Confirmar aplicação definitiva</h3><p><strong>Arquivo:</strong> {arquivo?.name}</p><p><strong>Versão:</strong> {sessao.versao}</p><p><strong>Sessão:</strong> {sessao.sessao_id}</p><p><strong>Expira em:</strong> {new Date(sessao.expira_em).toLocaleString("pt-BR")}</p>
+      <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left border-b"><th className="p-2">Entidade</th><th>Criar</th><th>Atualizar</th><th>Desativar</th><th>Sem alteração</th></tr></thead><tbody>{totais.filter((item) => item.aba !== "GERAL").map((item) => <tr key={item.aba} className="border-b"><td className="p-2">{nomeAba(item.aba)}</td><td>{item.criar}</td><td>{item.atualizar}</td><td>{item.desativar}</td><td>{item.sem_alteracao}</td></tr>)}</tbody></table></div>
+      <ul className="list-disc pl-6 text-sm"><li>Criar: {totaisGerais.criar}</li><li>Atualizar: {totaisGerais.atualizar}</li><li>Desativar: {totaisGerais.desativar}</li><li>Sem alteração: {totaisGerais.sem_alteracao}</li></ul>
+      <p className="font-medium">O banco será revalidado e as alterações serão aplicadas em uma única transação. Divergências impedirão a aplicação.</p><p className="text-sm">A ação é definitiva para esta sessão. Históricos não são apagados; esta interface não certifica conformidade regulatória.</p><div className="flex gap-3"><button type="button" disabled={ocupado} onClick={() => { setConfirmarAberto(false); botaoAbrirConfirmacaoRef.current?.focus(); }} className={`${botao} bg-gray-200`}>Cancelar</button><button ref={botaoConfirmarRef} type="button" disabled={!botoes.confirmar || ocupado} onClick={confirmar} className={`${botao} bg-red-700 text-white`}>Confirmar e aplicar</button></div>
     </section>}
 
-    {resultado && <section className="bg-white p-6 rounded shadow space-y-3"><h3 className="text-lg font-semibold">Resultado final</h3><p><strong>Status:</strong> ✓ {resultado.status}</p><div className="grid sm:grid-cols-4 gap-2 text-sm">{Object.entries(resultado.totais || {}).map(([chave, valor]) => <div key={chave} className="border rounded p-2"><strong>{chave.replace("_", " ")}:</strong> {valor}</div>)}</div><p className="text-sm"><strong>Códigos afetados:</strong> {(resultado.codigos_afetados || []).join(", ") || "Nenhum"}</p>{resultado.resultado_truncado && <p className="text-sm bg-amber-50 border border-amber-300 p-2">⚠ A lista de códigos afetados foi truncada; os totais permanecem completos.</p>}<button onClick={novaImportacao} className={`${botao} bg-blue-600 text-white`}>Iniciar nova importação</button></section>}
+    {resultado && <section className="bg-white p-6 rounded shadow space-y-3"><h3 className="text-lg font-semibold">Resultado final</h3><p><strong>Status:</strong> ✓ {resultado.status}</p><div className="grid sm:grid-cols-4 gap-2 text-sm">{["criar", "atualizar", "desativar", "sem_alteracao"].map((chave) => <div key={chave} className="border rounded p-2"><strong>{chave.replace("_", " ")}:</strong> {Number(resultado.totais?.[chave]) || 0}</div>)}</div><div><h4 className="font-medium mb-2">Identidades afetadas</h4><Paginacao dados={resultado.codigos_afetados || []} paginaAtual={paginaAfetados} setPaginaAtual={setPaginaAfetados} vazio="Nenhuma identidade afetada." renderItem={(identidade, indice) => <div key={`${identidade}-${indice}`} className="border rounded p-2 text-sm break-all">{String(identidade)}</div>} /></div>{resultado.resultado_truncado && <p role="status" className="text-sm bg-amber-50 border border-amber-300 p-2">A lista foi truncada em 500 identidades; os totais permanecem completos.</p>}<button type="button" onClick={novaImportacao} className={`${botao} bg-blue-600 text-white`}>Iniciar nova importação</button></section>}
   </div>;
 }
