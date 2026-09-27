@@ -158,7 +158,11 @@ def confirmar_importacao(
         raise HTTPException(404, "Sessão ou credencial de confirmação inválida.") from exc
     except ConflitoSessao as exc:
         db.commit()
-        raise HTTPException(409, exc.mensagem) from exc
+        detalhe = (
+            {"codigo": exc.codigo, "mensagem": exc.mensagem}
+            if exc.codigo else exc.mensagem
+        )
+        raise HTTPException(409, detalhe) from exc
     except Exception as exc:
         db.rollback()
         try:

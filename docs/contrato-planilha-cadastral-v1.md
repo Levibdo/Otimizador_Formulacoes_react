@@ -190,8 +190,10 @@ consultas seguintes são idempotentes. Sessões `CONFIRMADA`, `EXPIRADA` ou
 futura deverá gravar `confirmado_em` e `resultado` na mesma transição. Uma falha
 futura deverá guardar apenas um diagnóstico seguro em `resultado`.
 
-O Bloco 3A não possui endpoint de confirmação. Portanto, nenhuma operação
-cadastral pode ser aplicada a partir de uma sessão preparada nesta etapa.
+O contrato 1.1 pode ser preparado e consultado, mas sua confirmação permanece
+bloqueada. Depois de bloquear a sessão e autenticar o token, o endpoint retorna
+HTTP 409 com `CONFIRMACAO_V11_NAO_DISPONIVEL`, antes de revalidar ou bloquear
+tabelas cadastrais. A sessão permanece `PENDENTE`, com o token ainda válido.
 
 ## Confirmação transacional
 
@@ -338,6 +340,20 @@ Os diagnósticos regulatórios usam códigos estáveis, incluindo
 `DEPENDENCIA_INVALIDA`, `REGRA_NAO_ENCONTRADA`, `REGRA_AMBIGUA` e
 `REGRA_SOBREPOSTA`.
 
-O endpoint `/preparar` permanece bloqueado para v1.1 com HTTP 422 e o código
-`PREPARACAO_V11_NAO_DISPONIVEL`. Ele não cria sessão nem token. O fluxo v1.0
-continua validando e preparando normalmente.
+O endpoint `/preparar` aceita v1.1 e persiste em JSONB o payload canônico
+completo, o resumo e os avisos em uma nova sessão `PENDENTE`. O token é retornado
+somente nessa resposta; apenas seu digest é armazenado. Preparações repetidas do
+mesmo arquivo criam UUIDs e credenciais independentes. O fluxo v1.0 continua
+validando, preparando e confirmando normalmente.
+
+O payload mantém os dados normalizados completos porque eles são a entrada da
+revalidação futura. Mantém também as operações completas para registrar a
+classificação produzida na preparação e permitir sua auditoria; resumo e avisos
+ficam nas colunas próprias da sessão. Antes do `flush`, o serviço verifica que a
+versão, as abas, as operações e o resumo são coerentes entre si.
+
+Falhas de serialização, criação ou `flush`, e falhas controladas antes de o
+`commit` terminar, são revertidas pela transação e recebem resposta genérica.
+Uma perda de comunicação durante o `commit` pode ter resultado desconhecido se
+o PostgreSQL já o confirmou; a resposta permanece genérica e não afirma que o
+rollback desfez uma transação já confirmada.

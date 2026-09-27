@@ -13,6 +13,21 @@ from services.pre_validacao_cadastral import pre_validar_planilha_cadastral_comp
 
 
 DURACAO_SESSAO = timedelta(hours=24)
+ABAS_DADOS_POR_VERSAO = {
+    "1.0": (
+        "MATERIAS_PRIMAS", "NUTRIENTES", "COMPOSICAO_NUTRICIONAL", "PRECOS_MP",
+    ),
+    "1.1": (
+        "MATERIAS_PRIMAS", "NUTRIENTES", "COMPOSICAO_NUTRICIONAL", "PRECOS_MP",
+        "CATEGORIAS_PRODUTO", "COMPONENTES_REGULATORIOS",
+        "COMPOSICAO_COMPONENTES_MP", "REGRAS_REGULATORIAS_MP",
+        "REGRAS_REGULATORIAS_COMPONENTE",
+    ),
+}
+RESULTADOS_RESUMO = {
+    "CRIAR": "criar", "ATUALIZAR": "atualizar",
+    "DESATIVAR": "desativar", "SEM_ALTERACAO": "sem_alteracao",
+}
 
 
 class PlanilhaInvalidaError(ValueError):
@@ -59,6 +74,44 @@ def serializar_canonico(valor) -> tuple[dict | list, str]:
     return json.loads(texto), texto
 
 
+def _payload_consistente(validacao, internos):
+    versao = validacao["versao"]
+    abas = ABAS_DADOS_POR_VERSAO.get(versao)
+    dados = internos["dados"]
+    operacoes = internos["operacoes"]
+    if abas is None or set(dados) != set(abas):
+        raise RuntimeError("Estrutura interna inconsistente para preparação.")
+    if validacao["operacoes_total"] != len(operacoes):
+        raise RuntimeError("Totais internos inconsistentes para preparação.")
+    contagens = {
+        aba: {chave: 0 for chave in RESULTADOS_RESUMO.values()}
+        for aba in abas
+    }
+    for operacao in operacoes:
+        aba = operacao.get("aba")
+        resultado = RESULTADOS_RESUMO.get(operacao.get("resultado"))
+        if aba not in contagens or resultado is None:
+            raise RuntimeError("Operação interna inconsistente para preparação.")
+        contagens[aba][resultado] += 1
+    for aba in abas:
+        if any(
+            contagens[aba][chave] != validacao["resumo"][aba][chave]
+            for chave in RESULTADOS_RESUMO.values()
+        ):
+            raise RuntimeError("Resumo interno inconsistente para preparação.")
+    dados_canonicos = {
+        aba: sorted(dados[aba], key=lambda item: item["linha"])
+        for aba in abas
+    }
+    return {
+        "versao": versao,
+        "dados": dados_canonicos,
+        # A classificação completa registra a decisão preparada; os dados de
+        # origem continuam sendo a base da futura revalidação contra o banco.
+        "operacoes": operacoes,
+    }
+
+
 def preparar_sessao(
     conteudo: bytes,
     nome_arquivo: str,
@@ -72,11 +125,7 @@ def preparar_sessao(
     if not validacao["valido_para_confirmacao"]:
         raise PlanilhaInvalidaError(validacao)
 
-    payload, _ = serializar_canonico({
-        "versao": validacao["versao"],
-        "dados": internos["dados"],
-        "operacoes": internos["operacoes"],
-    })
+    payload, _ = serializar_canonico(_payload_consistente(validacao, internos))
     resumo, _ = serializar_canonico(validacao["resumo"])
     avisos, _ = serializar_canonico([
         item for item in internos["diagnosticos"] if item["severidade"] == "AVISO"

@@ -220,16 +220,13 @@ def test_token_nao_aparece_na_representacao_do_model(client, db):
     assert preparada["token_confirmacao"] not in repr(sessao)
 
 
-def test_preparar_v11_nao_cria_sessao_nem_token(client, db, monkeypatch):
-    def token_proibido(*args, **kwargs):
-        raise AssertionError("não deve gerar token para v1.1 bloqueada")
-    monkeypatch.setattr("services.staging_importacao_cadastral.secrets.token_urlsafe", token_proibido)
-    antes = db.scalar(select(func.count()).select_from(SessaoImportacaoCadastral))
+def test_preparar_v11_vazio_cria_sessao_pendente(client, db):
     resposta = client.post(
         "/api/v1/importacoes-cadastrais/preparar",
         files={"arquivo": ("regulatorio.xlsx", gerar_template_cadastral("1.1"))},
     )
-    assert resposta.status_code == 422
-    assert resposta.json()["detail"]["validacao"]["versao"] == "1.1"
-    depois = db.scalar(select(func.count()).select_from(SessaoImportacaoCadastral))
-    assert depois == antes
+    assert resposta.status_code == 201, resposta.text
+    assert resposta.json()["versao"] == "1.1"
+    sessao = db.scalar(select(SessaoImportacaoCadastral))
+    assert sessao.status == "PENDENTE"
+    assert sessao.payload_normalizado["versao"] == "1.1"

@@ -17,7 +17,7 @@ from services.planilha_cadastral import gerar_template_cadastral
 from services.pre_validacao_cadastral import (
     pre_validar_planilha_cadastral, pre_validar_planilha_cadastral_completo,
 )
-from services.staging_importacao_cadastral import PlanilhaInvalidaError, preparar_sessao
+from services.staging_importacao_cadastral import preparar_sessao
 
 
 ABAS_DADOS = (
@@ -208,20 +208,19 @@ def test_troca_de_periodo_desativar_e_criar_e_regra_por_componente(db):
     assert resultado["resumo"]["REGRAS_REGULATORIAS_COMPONENTE"]["criar"] == 1
 
 
-def test_preparacao_v11_permanece_bloqueada_sem_sessao_ou_token(db, monkeypatch):
+def test_preparacao_v11_reutiliza_pre_validacao_sem_aplicar_cadastros(db):
     conteudo = planilha(
         CATEGORIAS_PRODUTO=[("CRIAR", "CAT_0001", "Categoria", None)],
     )
     resposta = pre_validar_planilha_cadastral(conteudo, "x.xlsx", db)
     assert resposta["valido_para_confirmacao"]
-    completo, _ = pre_validar_planilha_cadastral_completo(conteudo, "x.xlsx", db)
-    assert not completo["valido_para_confirmacao"]
-    assert "PREPARACAO_V11_NAO_DISPONIVEL" in codigos(completo)
-    monkeypatch.setattr("services.staging_importacao_cadastral.secrets.token_urlsafe",
-                        lambda *_: pytest.fail("token não deve ser gerado"))
-    with pytest.raises(PlanilhaInvalidaError):
-        preparar_sessao(conteudo, "x.xlsx", db)
-    assert db.scalar(select(SessaoImportacaoCadastral)) is None
+    completo, internos = pre_validar_planilha_cadastral_completo(conteudo, "x.xlsx", db)
+    assert completo == resposta
+    assert internos["dados"]["CATEGORIAS_PRODUTO"][0]["codigo"] == "CAT_0001"
+    sessao, token, validacao = preparar_sessao(conteudo, "x.xlsx", db)
+    assert sessao.versao_contrato == "1.1"
+    assert token and validacao["valido_para_confirmacao"]
+    assert db.scalar(select(SessaoImportacaoCadastral)) is sessao
 
 
 def test_chave_duplicada_tem_codigo_estavel(db):

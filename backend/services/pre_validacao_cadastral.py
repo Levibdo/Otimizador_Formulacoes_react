@@ -644,18 +644,6 @@ def pre_validar_planilha_cadastral(
 def pre_validar_planilha_cadastral_completo(
     conteudo: bytes, nome_arquivo: str, db: Session, digest_arquivo: str | None = None
 ) -> tuple[dict, dict]:
-    resposta, internos = _pre_validar_planilha_cadastral(
+    return _pre_validar_planilha_cadastral(
         conteudo, nome_arquivo, db, digest_arquivo
-    )
-    if resposta["versao"] != "1.1":
-        return resposta, internos
-    diagnosticos = list(internos["diagnosticos"])
-    diagnosticos.append(_diagnostico(
-        "ERRO", "GERAL",
-        "A preparação do contrato 1.1 ainda não está disponível; use apenas /validar.",
-        codigo="PREPARACAO_V11_NAO_DISPONIVEL",
-    ))
-    return _finalizar(
-        "1.1", resposta["sha256"], internos["dados"], diagnosticos,
-        internos["operacoes"], set(),
     )

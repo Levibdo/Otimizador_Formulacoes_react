@@ -21,8 +21,9 @@ class CredenciaisSessaoInvalidas(Exception):
 
 
 class ConflitoSessao(Exception):
-    def __init__(self, mensagem):
+    def __init__(self, mensagem, codigo=None):
         self.mensagem = mensagem
+        self.codigo = codigo
 
 
 class RevalidacaoFalhou(ConflitoSessao):
@@ -175,6 +176,11 @@ def confirmar_sessao(db: Session, sessao_id, token):
         raise ConflitoSessao("A sessão falhou e não pode ser reutilizada; prepare uma nova importação.")
     if repo.marcar_expirada(sessao):
         raise ConflitoSessao("A sessão expirou; prepare uma nova importação.")
+    if sessao.versao_contrato == "1.1":
+        raise ConflitoSessao(
+            "A confirmação do contrato 1.1 ainda não está disponível.",
+            "CONFIRMACAO_V11_NAO_DISPONIVEL",
+        )
 
     _bloquear_cadastros(db)
     conteudo = _xlsx_do_payload(sessao.payload_normalizado)

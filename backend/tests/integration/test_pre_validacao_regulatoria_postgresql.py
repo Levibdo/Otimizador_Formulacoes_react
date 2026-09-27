@@ -104,7 +104,7 @@ def test_validar_v11_postgresql_estado_projetado_sem_escrita_e_deterministico(pg
     assert snapshot(engine) == antes
 
 
-def test_validar_v11_banco_vazio_e_preparar_bloqueado(pg_client, postgres_app):
+def test_validar_e_preparar_v11_em_banco_vazio(pg_client, postgres_app):
     _, engine, _ = postgres_app
     conteudo = planilha(
         MATERIAS_PRIMAS=[("CRIAR", "PG_MP_NOVA", "MP nova", "SIM")],
@@ -123,11 +123,10 @@ def test_validar_v11_banco_vazio_e_preparar_bloqueado(pg_client, postgres_app):
         "/api/v1/importacoes-cadastrais/preparar",
         files={"arquivo": ("regulatorio.xlsx", conteudo)},
     )
-    assert resposta.status_code == 422
-    detalhe = resposta.json()["detail"]
-    assert any("preparação do contrato 1.1" in item["mensagem"] for item in detalhe["validacao"]["diagnosticos"])
+    assert resposta.status_code == 201, resposta.text
+    assert resposta.json()["versao"] == "1.1"
     with Session(engine) as db:
-        assert db.scalar(select(func.count()).select_from(SessaoImportacaoCadastral)) == 0
+        assert db.scalar(select(func.count()).select_from(SessaoImportacaoCadastral)) == 1
         assert db.scalar(select(func.count()).select_from(MateriaPrima)) == 0
 
 
