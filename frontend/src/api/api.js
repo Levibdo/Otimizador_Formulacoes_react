@@ -218,7 +218,11 @@ export async function baixarTemplateImportacaoCadastral(signal) {
     responseType: 'blob',
     signal,
   });
-  return res.data;
+  return {
+    blob: res.data,
+    contentDisposition: res.headers?.['content-disposition'] || '',
+    contentType: res.headers?.['content-type'] || '',
+  };
 }
 
 function formularioImportacao(arquivo) {

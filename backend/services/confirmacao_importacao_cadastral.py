@@ -8,12 +8,20 @@ from sqlalchemy.orm import Session
 
 from models import ComposicaoMateriaPrima, MateriaPrima, Nutriente, PrecoMateriaPrima
 from repositories.importacao_cadastral_repository import ImportacaoCadastralRepository
+from services.aplicacao_importacao_regulatoria import aplicar_importacao_regulatoria
 from services.planilha_cadastral import gerar_template_cadastral
 from services.pre_validacao_cadastral import pre_validar_planilha_cadastral_completo
 from services.staging_importacao_cadastral import serializar_canonico
 
 MAX_CODIGOS_RESULTADO = 500
-ORDEM_LOCKS = ("nutrientes", "materias_primas", "composicoes_materias_primas", "precos_materias_primas")
+ORDEM_LOCKS_V10 = (
+    "nutrientes", "materias_primas", "composicoes_materias_primas",
+    "precos_materias_primas",
+)
+ORDEM_LOCKS_V11 = ORDEM_LOCKS_V10 + (
+    "categorias_produto", "componentes_regulatorios",
+    "composicoes_componentes_mp", "regras_regulatorias",
+)
 
 
 class CredenciaisSessaoInvalidas(Exception):
@@ -21,27 +29,52 @@ class CredenciaisSessaoInvalidas(Exception):
 
 
 class ConflitoSessao(Exception):
-    def __init__(self, mensagem):
+    def __init__(self, mensagem, codigo=None):
         self.mensagem = mensagem
+        self.codigo = codigo
 
 
 class RevalidacaoFalhou(ConflitoSessao):
-    pass
+    def __init__(self, mensagem, diagnosticos=None, codigo=None):
+        super().__init__(mensagem, codigo)
+        self.diagnosticos = diagnosticos or []
 
 
 def _xlsx_do_payload(payload):
-    workbook = load_workbook(io.BytesIO(gerar_template_cadastral()))
+    versao = payload.get("versao")
+    if versao not in {"1.0", "1.1"}:
+        raise ValueError("Versão persistida ausente ou não suportada.")
+    workbook = load_workbook(io.BytesIO(gerar_template_cadastral(versao)))
     colunas = {
         "MATERIAS_PRIMAS": ("acao", "codigo", "nome", "ativa"),
         "NUTRIENTES": ("acao", "codigo", "nome", "unidade"),
         "COMPOSICAO_NUTRICIONAL": ("acao", "materia_prima_codigo", "nutriente_codigo", "valor"),
         "PRECOS_MP": ("acao", "materia_prima_codigo", "preco_kg", "vigencia_inicio", "vigencia_fim"),
     }
+    if versao == "1.1":
+        colunas.update({
+            "CATEGORIAS_PRODUTO": ("acao", "codigo", "nome", "descricao"),
+            "COMPONENTES_REGULATORIOS": ("acao", "codigo", "nome", "descricao"),
+            "COMPOSICAO_COMPONENTES_MP": (
+                "acao", "materia_prima_codigo", "componente_codigo", "data_referencia",
+                "situacao", "concentracao", "fonte", "observacao",
+            ),
+            "REGRAS_REGULATORIAS_MP": (
+                "acao", "categoria_codigo", "materia_prima_codigo", "tratamento",
+                "minimo", "maximo", "justificativa", "referencia_normativa",
+                "vigencia_inicio", "vigencia_fim",
+            ),
+            "REGRAS_REGULATORIAS_COMPONENTE": (
+                "acao", "categoria_codigo", "componente_codigo", "tratamento",
+                "minimo", "maximo", "justificativa", "referencia_normativa",
+                "vigencia_inicio", "vigencia_fim",
+            ),
+        })
     for aba, campos in colunas.items():
         ws = workbook[aba]
         if ws.max_row > 1:
             ws.delete_rows(2, ws.max_row - 1)
-        for item in sorted(payload["dados"][aba], key=lambda valor: valor["linha"]):
+        for item in sorted(payload["dados"].get(aba, []), key=lambda valor: valor["linha"]):
             for coluna, campo in enumerate(campos, start=1):
                 valor = item.get(campo)
                 if campo == "ativa" and isinstance(valor, bool):
@@ -52,9 +85,10 @@ def _xlsx_do_payload(payload):
     return saida.getvalue()
 
 
-def _bloquear_cadastros(db):
+def _bloquear_cadastros(db, versao="1.0"):
     if db.bind.dialect.name == "postgresql":
-        for tabela in ORDEM_LOCKS:
+        ordem = ORDEM_LOCKS_V11 if versao == "1.1" else ORDEM_LOCKS_V10
+        for tabela in ordem:
             db.execute(text(f'LOCK TABLE {tabela} IN SHARE ROW EXCLUSIVE MODE'))
 
 
@@ -126,7 +160,13 @@ def _aplicar(db, dados, operacoes):
 
 
 def _resultado(sessao, validacao, operacoes, confirmado_em):
-    afetados = sorted({item["codigo"] for item in operacoes if item["resultado"] != "SEM_ALTERACAO"})
+    afetados = sorted({
+        (
+            f'{item["aba"]}:{item["codigo"]}'
+            if sessao.versao_contrato == "1.1" else item["codigo"]
+        )
+        for item in operacoes if item["resultado"] != "SEM_ALTERACAO"
+    })
     contagens = {chave: sum(valores[chave] for aba, valores in validacao["resumo"].items() if aba != "GERAL")
                  for chave in ("criar", "atualizar", "desativar", "sem_alteracao")}
     resultado, _ = serializar_canonico({
@@ -153,21 +193,34 @@ def confirmar_sessao(db: Session, sessao_id, token):
         raise ConflitoSessao("A sessão falhou e não pode ser reutilizada; prepare uma nova importação.")
     if repo.marcar_expirada(sessao):
         raise ConflitoSessao("A sessão expirou; prepare uma nova importação.")
-
-    _bloquear_cadastros(db)
+    _bloquear_cadastros(db, sessao.versao_contrato)
     conteudo = _xlsx_do_payload(sessao.payload_normalizado)
     validacao, internos = pre_validar_planilha_cadastral_completo(
         conteudo, "payload-canonico.xlsx", db, sessao.arquivo_sha256
     )
-    if not validacao["valido_para_confirmacao"]:
-        diagnosticos = validacao["diagnosticos"][:50]
-        falha, _ = serializar_canonico({"tipo": "REVALIDACAO", "mensagem": "Os cadastros mudaram desde a preparação. Prepare uma nova sessão.", "diagnosticos": diagnosticos})
-        sessao.status = "FALHOU"
-        sessao.resultado = falha
-        db.flush()
-        raise RevalidacaoFalhou("Os cadastros mudaram desde a preparação; prepare uma nova sessão.")
+    classificacao_divergente = (
+        sessao.versao_contrato == "1.1"
+        and (
+            validacao["versao"] != sessao.versao_contrato
+            or internos["dados"] != sessao.payload_normalizado["dados"]
+            or internos["operacoes"] != sessao.payload_normalizado["operacoes"]
+            or validacao["resumo"] != sessao.resumo
+        )
+    )
+    if not validacao["valido_para_confirmacao"] or classificacao_divergente:
+        raise RevalidacaoFalhou(
+            "Os cadastros mudaram desde a preparação; prepare uma nova sessão.",
+            validacao["diagnosticos"][:50],
+            "REVALIDACAO_DIVERGENTE"
+            if sessao.versao_contrato == "1.1" else None,
+        )
 
-    _aplicar(db, internos["dados"], internos["operacoes"])
+    if sessao.versao_contrato == "1.1":
+        aplicar_importacao_regulatoria(
+            db, internos["dados"], internos["operacoes"]
+        )
+    else:
+        _aplicar(db, internos["dados"], internos["operacoes"])
     confirmado_em = db.scalar(select(func.clock_timestamp()))
     resultado = _resultado(sessao, validacao, internos["operacoes"], confirmado_em)
     sessao.status = "CONFIRMADA"
@@ -183,4 +236,18 @@ def registrar_falha_tecnica(db: Session, sessao_id):
     if sessao is not None and sessao.status == "PENDENTE":
         sessao.status = "FALHOU"
         sessao.resultado = {"tipo": "ERRO_TECNICO", "mensagem": "A confirmação falhou sem aplicar alterações. Prepare uma nova sessão."}
+        db.flush()
+
+
+def registrar_falha_revalidacao(db: Session, sessao_id, diagnosticos=None):
+    repo = ImportacaoCadastralRepository(db)
+    sessao = repo.obter(sessao_id, bloquear=True)
+    if sessao is not None and sessao.status == "PENDENTE":
+        falha, _ = serializar_canonico({
+            "tipo": "REVALIDACAO",
+            "mensagem": "Os cadastros mudaram desde a preparação. Prepare uma nova sessão.",
+            "diagnosticos": (diagnosticos or [])[:50],
+        })
+        sessao.status = "FALHOU"
+        sessao.resultado = falha
         db.flush()

@@ -11,7 +11,7 @@ from services.planilha_cadastral import MAX_ARQUIVO_BYTES, gerar_template_cadast
 from services.staging_importacao_cadastral import PlanilhaInvalidaError, preparar_sessao
 from repositories.importacao_cadastral_repository import ImportacaoCadastralRepository
 from schemas.importacao_cadastral import (ConfirmacaoImportacaoRequest, SessaoImportacaoPreparada, SessaoImportacaoRead)
-from services.confirmacao_importacao_cadastral import (ConflitoSessao, CredenciaisSessaoInvalidas, confirmar_sessao, registrar_falha_tecnica)
+from services.confirmacao_importacao_cadastral import (ConflitoSessao, CredenciaisSessaoInvalidas, RevalidacaoFalhou, confirmar_sessao, registrar_falha_revalidacao, registrar_falha_tecnica)
 
 
 router = APIRouter(prefix="/api/v1/importacoes-cadastrais", tags=["Importação cadastral"])
@@ -61,10 +61,10 @@ def baixar_template():
         content=conteudo,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": 'attachment; filename="template-cadastral-v1.0.xlsx"',
+            "Content-Disposition": 'attachment; filename="template-cadastral-v1.1.xlsx"',
             "Content-Security-Policy": "default-src 'none'",
             "X-Content-Type-Options": "nosniff",
-            "X-Template-Version": "1.0",
+            "X-Template-Version": "1.1",
         },
     )
 
@@ -149,24 +149,52 @@ def consultar_sessao(sessao_id: UUID, db: Session = Depends(get_db)):
 def confirmar_importacao(
     sessao_id: UUID, dados: ConfirmacaoImportacaoRequest, db: Session = Depends(get_db),
 ):
+    confirmacao_pronta_para_commit = False
     try:
         resultado = confirmar_sessao(db, sessao_id, dados.token.get_secret_value())
+        confirmacao_pronta_para_commit = True
         db.commit()
         return resultado
     except CredenciaisSessaoInvalidas as exc:
         db.rollback()
         raise HTTPException(404, "Sessão ou credencial de confirmação inválida.") from exc
-    except ConflitoSessao as exc:
-        db.commit()
-        raise HTTPException(409, exc.mensagem) from exc
-    except Exception as exc:
+    except RevalidacaoFalhou as exc:
         db.rollback()
         try:
-            registrar_falha_tecnica(db, sessao_id)
+            registrar_falha_revalidacao(db, sessao_id, exc.diagnosticos)
             db.commit()
         except Exception:
             db.rollback()
-            logger.exception("Não foi possível registrar a falha técnica da importação cadastral.")
+            logger.exception("Não foi possível registrar o conflito de revalidação.")
+        detalhe = (
+            {"codigo": exc.codigo, "mensagem": exc.mensagem}
+            if exc.codigo else exc.mensagem
+        )
+        raise HTTPException(409, detalhe) from exc
+    except ConflitoSessao as exc:
+        db.commit()
+        detalhe = (
+            {"codigo": exc.codigo, "mensagem": exc.mensagem}
+            if exc.codigo else exc.mensagem
+        )
+        raise HTTPException(409, detalhe) from exc
+    except Exception as exc:
+        commit_possivelmente_confirmado = False
+        if confirmacao_pronta_para_commit:
+            try:
+                commit_possivelmente_confirmado = db.connection().invalidated
+            except Exception:
+                commit_possivelmente_confirmado = True
+        db.rollback()
+        if not commit_possivelmente_confirmado:
+            try:
+                registrar_falha_tecnica(db, sessao_id)
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception(
+                    "Não foi possível registrar a falha técnica da importação cadastral."
+                )
         logger.exception("Falha técnica na confirmação da importação cadastral.")
         raise HTTPException(500, "Não foi possível confirmar a importação cadastral.") from exc
 

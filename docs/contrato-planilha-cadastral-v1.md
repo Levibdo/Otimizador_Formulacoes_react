@@ -1,8 +1,27 @@
-# Contrato da planilha cadastral 1.0
+# Contrato da planilha cadastral 1.x
 
 Este contrato cobre apenas a leitura e a validação estrutural de arquivos `.xlsx`.
 O parser não consulta nem altera o PostgreSQL, não executa `commit` e não infere
 operações. O importador legado de matérias-primas permanece disponível.
+
+## Compatibilidade de versões
+
+| Versão declarada | Abas exigidas | Finalidade |
+| --- | ---: | --- |
+| `1.0` | 5 | Contrato original de matérias-primas, nutrientes, composição nutricional e preços. |
+| `1.1` | 10 | Mantém integralmente as cinco abas v1.0 e acrescenta cinco abas regulatórias. |
+
+O parser lê `VERSAO_TEMPLATE` em `LEIA_ME` antes de escolher o schema. O valor
+deve ser texto literal; espaços externos são removidos, mas números, booleanos,
+datas e fórmulas são rejeitados. A versão não é inferida. V1.0 rejeita abas
+regulatórias; v1.1 exige todas elas. Versão
+ausente ou desconhecida, aba ausente, adicional, duplicada, fora de ordem ou com
+nome estruturalmente inválido torna o arquivo inválido.
+
+O download padrão gera v1.1. A função geradora ainda produz v1.0 explicitamente
+para round-trip e compatibilidade. O Bloco 1 valida apenas estrutura, tipos e
+coerência intrínseca: a pré-validação PostgreSQL e a aplicação dos cadastros
+regulatórios pertencem aos blocos seguintes.
 
 ## Regras gerais
 
@@ -167,12 +186,10 @@ matérias-primas, nutrientes, composições ou preços.
 A decisão de vencimento usa o relógio do PostgreSQL. Consultar uma sessão
 `PENDENTE` vencida pode alterar exclusivamente seu estado para `EXPIRADA`;
 consultas seguintes são idempotentes. Sessões `CONFIRMADA`, `EXPIRADA` ou
-`FALHOU` são finais e nunca expiram nem retornam a `PENDENTE`. Uma confirmação
-futura deverá gravar `confirmado_em` e `resultado` na mesma transição. Uma falha
-futura deverá guardar apenas um diagnóstico seguro em `resultado`.
-
-O Bloco 3A não possui endpoint de confirmação. Portanto, nenhuma operação
-cadastral pode ser aplicada a partir de uma sessão preparada nesta etapa.
+`FALHOU` são finais e nunca expiram nem
+retornam a `PENDENTE`. A confirmação grava `confirmado_em` e `resultado` na
+mesma transição dos cadastros. Uma falha guarda apenas um diagnóstico seguro em
+`resultado`.
 
 ## Confirmação transacional
 
@@ -181,20 +198,192 @@ cadastral pode ser aplicada a partir de uma sessão preparada nesta etapa.
 tempo constante e nunca é persistido ou retornado. UUID inexistente e token
 incorreto recebem a mesma resposta genérica.
 
-A confirmação bloqueia, nesta ordem, `nutrientes`, `materias_primas`,
-`composicoes_materias_primas` e `precos_materias_primas` em modo
-`SHARE ROW EXCLUSIVE`. O bloqueio serializa escritores durante a revalidação e a
-aplicação, protegendo especialmente intervalos de preços, que não possuem uma
-constraint de exclusão. O custo é reduzir temporariamente a concorrência de
-escrita cadastral; consultas permanecem disponíveis.
+A confirmação v1.0 bloqueia, nesta ordem, `nutrientes`, `materias_primas`,
+`composicoes_materias_primas` e `precos_materias_primas`. A v1.1 mantém esses
+quatro primeiros locks e acrescenta, na ordem, `categorias_produto`,
+`componentes_regulatorios`, `composicoes_componentes_mp` e
+`regras_regulatorias`. Todos usam `SHARE ROW EXCLUSIVE`. O bloqueio serializa
+escritores durante a revalidação e a aplicação; consultas permanecem
+disponíveis.
 
 O XLSX não é armazenado nem reutilizado. O servidor reconstrói o contrato a
 partir do payload canônico, revalida códigos e regras contra o PostgreSQL e
-aplica, em transação única, nutrientes, matérias-primas, composições, preços e,
-por último, desativações. Revalidação conflitante marca a sessão como `FALHOU`
-sem alterar cadastros. Falha técnica desfaz primeiro toda a transação e registra
-um diagnóstico genérico em transação separada.
+compara semanticamente versão, dados, operações e resumo com o staging. Qualquer
+divergência retorna `REVALIDACAO_DIVERGENTE`, desfaz a transação e marca a sessão
+como `FALHOU` em transação separada, sem adaptar a classificação ao estado novo.
+Falha técnica também desfaz primeiro toda a transação e registra apenas um
+diagnóstico genérico em transação separada.
+
+Na v1.1, a aplicação usa mapas por código e `flush` sem commit para resolver
+entidades criadas no mesmo lote. A ordem é nutrientes, matérias-primas,
+categorias, componentes, composição nutricional, preços, composições
+regulatórias, regras e desativações finais. Na revisão de uma regra, a
+predecessora é desativada e enviada ao banco antes da inserção da sucessora; a
+sucessora recebe a revisão seguinte e referencia a anterior. Nenhuma operação
+remove histórico.
+
+O resultado identifica afetados como `ABA:identidade`, usando a identidade
+canônica já produzida pela pré-validação. Assim, categorias e componentes usam
+seu código, composições usam matéria-prima, componente e data, e regras incluem
+categoria, tipo de alvo, alvo e vigência. A lista é ordenada, limitada a 500
+itens e acompanhada de `resultado_truncado`. `SEM_ALTERACAO` entra nos totais,
+mas não nessa lista e não executa `UPDATE`.
+
+Exemplos canônicos são `CATEGORIAS_PRODUTO:CAT_0001`,
+`COMPONENTES_REGULATORIOS:COMP_0001`,
+`COMPOSICAO_COMPONENTES_MP:MP_0001/COMP_0001/2026-01-02`,
+`REGRAS_REGULATORIAS_MP:CAT_0001/MP_0001/2026-01-01/2026-12-31` e
+`REGRAS_REGULATORIAS_COMPONENTE:CAT_0001/COMP_0001//2026-12-31`. O nome da
+aba distingue o tipo de alvo. Datas ISO e campos vazios em posições fixas
+distinguem vigências abertas. Códigos aceitos não contêm `:` nem `/`, evitando
+colisão com os separadores.
+
+Se uma falha ocorre antes de o commit ser enviado e a conexão continua válida,
+o lote é revertido e a API tenta marcar a sessão como `FALHOU`. Se a conexão é
+invalidada durante o commit, o resultado pode ser desconhecido: a resposta é
+genérica, a API não inicia uma compensação nem marca `FALHOU` cegamente, e uma
+consulta posterior deve revelar o estado efetivamente confirmado pelo banco.
+Sequências PostgreSQL podem manter lacunas após rollback; a atomicidade exigida
+é das linhas e alterações cadastrais.
 
 Uma sessão `CONFIRMADA` com o token correto retorna o resultado persistido sem
 reaplicar operações. Assim, confirmações repetidas e concorrentes da mesma
 sessão são idempotentes.
+
+
+## Extensão regulatória v1.1
+
+As cinco primeiras abas e seus comportamentos permanecem idênticos ao v1.0. A
+v1.1 acrescenta, nesta ordem:
+
+| Aba | Colunas, na ordem | Ações |
+| --- | --- | --- |
+| `CATEGORIAS_PRODUTO` | `ACAO`, `CODIGO`, `NOME`, `DESCRICAO` | `CRIAR`, `ATUALIZAR`, `DESATIVAR` |
+| `COMPONENTES_REGULATORIOS` | `ACAO`, `CODIGO`, `NOME`, `DESCRICAO` | `CRIAR`, `ATUALIZAR`, `DESATIVAR` |
+| `COMPOSICAO_COMPONENTES_MP` | `ACAO`, `MATERIA_PRIMA_CODIGO`, `COMPONENTE_CODIGO`, `DATA_REFERENCIA`, `SITUACAO`, `CONCENTRACAO`, `FONTE`, `OBSERVACAO` | `CRIAR`, `DESATIVAR` |
+| `REGRAS_REGULATORIAS_MP` | `ACAO`, `CATEGORIA_CODIGO`, `MATERIA_PRIMA_CODIGO`, `TRATAMENTO`, `MINIMO`, `MAXIMO`, `JUSTIFICATIVA`, `REFERENCIA_NORMATIVA`, `VIGENCIA_INICIO`, `VIGENCIA_FIM` | `CRIAR`, `ATUALIZAR`, `DESATIVAR` |
+| `REGRAS_REGULATORIAS_COMPONENTE` | `ACAO`, `CATEGORIA_CODIGO`, `COMPONENTE_CODIGO`, `TRATAMENTO`, `MINIMO`, `MAXIMO`, `JUSTIFICATIVA`, `REFERENCIA_NORMATIVA`, `VIGENCIA_INICIO`, `VIGENCIA_FIM` | `CRIAR`, `ATUALIZAR`, `DESATIVAR` |
+
+`SEM_ALTERACAO` nunca é uma ação da planilha; é resultado calculado em etapa
+posterior. Não existe reativação implícita. `CRIAR` não reativa, `ATUALIZAR` não
+muda atividade e `DESATIVAR` expressa somente a desativação.
+
+### Catálogos regulatórios
+
+Códigos são texto, normalizados para uppercase, começam por letra e aceitam
+letras, números e `_`, com até 50 caracteres. `CRIAR` exige nome. Em
+`ATUALIZAR`, nome e descrição vazios preservam o valor existente; ao menos um
+deles deve ser informado. `DESATIVAR` aceita somente o código.
+
+Exemplos: `CRIAR | FICT_CATEGORIA | Categoria fictícia | Sem alegação normativa`
+e `DESATIVAR | FICT_COMPONENTE | [vazio] | [vazio]`.
+
+### Composição regulatória
+
+A chave natural é MP + componente + data de referência. `CRIAR` exige data ISO
+textual `AAAA-MM-DD` e situação. `DESATIVAR` aceita somente a chave natural.
+
+| Situação | Concentração |
+| --- | --- |
+| `INFORMADO` | decimal explícito entre 0 e 100 |
+| `AUSENTE_CONFIRMADO` | zero explícito |
+| `DESCONHECIDO` | célula vazia, normalizada para `NULL` |
+
+Vazio nunca é convertido em zero. Decimais são preservados como texto decimal,
+sem passagem por `float`.
+
+### Regras regulatórias
+
+A aba define exclusivamente o tipo do alvo. Unidade e base não são colunas: o
+payload normalizado introduz `%` e `MASSA_MASSA`. IDs, revisão, predecessor,
+atividade e timestamps também não pertencem à planilha.
+
+- `PERMITIDA`: limites opcionais;
+- `LIMITADA`: exige ao menos mínimo ou máximo;
+- `OBRIGATORIA`: exige mínimo maior que zero;
+- `PROIBIDA`: aceita mínimo vazio ou zero; máximo vazio é normalizado para zero;
+- limites presentes ficam entre 0 e 100 e mínimo não supera máximo;
+- justificativa é obrigatória em `CRIAR` e `ATUALIZAR`;
+- datas são texto ISO; datas vazias representam extremos abertos;
+- `DESATIVAR` aceita apenas categoria, alvo e as duas extremidades da vigência;
+- em `ATUALIZAR`, categoria, alvo e período identificam a regra existente;
+- mudar o período exige `DESATIVAR` a regra anterior e `CRIAR` uma nova.
+
+Exemplo: `CRIAR | FICT_CATEGORIA | FICT_COMPONENTE | PROIBIDA | [vazio] |
+[vazio] | Exemplo fictício | [vazio] | 2026-01-01 | [vazio]`.
+
+Existência, atividade, duplicidade com o banco, sobreposição de vigência e
+resolução das referências não são decididas pelo parser estrutural. Essas regras
+pertencem à pré-validação PostgreSQL do Bloco 2. Este bloco não insere, atualiza,
+desativa ou reserva qualquer cadastro.
+
+### Segurança e round-trip
+
+O limite de abas é orientado pela versão: exatamente 5 na v1.0 e exatamente 10
+na v1.1. Permanecem os limites de 5 MiB, 30 MiB descomprimidos, 200 entradas ZIP,
+razão 100:1, teto absoluto de 10 abas, 5.000 linhas por aba, 12 colunas por aba
+e 100.000 células. Os limites são aplicados antes de confiar na versão declarada
+e abrangem `LEIA_ME`. Abas ocultas ou muito ocultas, fórmulas, macros, links
+externos, entradas ZIP duplicadas, arquivos criptografados, caminhos internos
+inválidos e workbook malformado são rejeitados.
+
+A reconstrução canônica escolhe o template pela versão persistida. Ordem de abas
+e linhas é determinística; códigos textuais com zeros, Unicode, decimais, zero
+explícito, vazio, datas ISO e booleanos v1.0 são preservados.
+
+
+## Pré-validação PostgreSQL da v1.1
+
+O endpoint `/validar` compara as dez abas com o PostgreSQL sem inserir, atualizar
+ou excluir registros. As consultas são agrupadas por códigos e chaves presentes
+no arquivo e executadas com `no_autoflush`. O estado projetado aplica, em memória,
+as operações válidas na ordem do contrato: matérias-primas, nutrientes,
+categorias, componentes, composição nutricional, preços, composições regulatórias
+e regras por MP e por componente.
+
+Assim, uma composição ou regra pode referenciar um cadastro criado no mesmo
+arquivo. Uma referência inexistente, inativa, desativada pelo lote ou dependente
+de linha inválida é rejeitada. Objetos ORM consultados nunca são alterados e
+nenhum objeto projetado é adicionado à sessão.
+
+Categorias e componentes usam o código como chave. `CRIAR` idêntico a cadastro
+ativo resulta em `SEM_ALTERACAO`; conteúdo diferente conflita; cadastro inativo
+não é reativado. Em `ATUALIZAR`, campos vazios preservam os valores atuais.
+`DESATIVAR` de cadastro já inativo resulta em `SEM_ALTERACAO`.
+
+Composições regulatórias são imutáveis por MP, componente e data de referência.
+Conteúdo idêntico resulta em `SEM_ALTERACAO`; conteúdo diferente exige nova
+identidade e é rejeitado como atualização imutável. Comparações usam
+`Decimal`, preservando a distinção entre zero e `NULL`.
+
+Regras são identificadas por categoria, tipo de alvo, código do alvo e período,
+incluindo extremos abertos. `ATUALIZAR` representa uma futura revisão sem
+escolher ou gravar predecessor neste bloco. Sobreposições consideram o estado
+final projetado, permitindo `DESATIVAR` o período antigo e `CRIAR` o novo no
+mesmo lote.
+
+Os diagnósticos regulatórios usam códigos estáveis, incluindo
+`REGISTRO_NAO_ENCONTRADO`, `REGISTRO_INATIVO`,
+`REATIVACAO_NAO_SUPORTADA`, `CRIAR_CONFLITA_EXISTENTE`,
+`ATUALIZACAO_IMUTAVEL`, `REFERENCIA_INEXISTENTE`,
+`REFERENCIA_INATIVA`, `REFERENCIA_DESATIVADA_NO_LOTE`,
+`DEPENDENCIA_INVALIDA`, `REGRA_NAO_ENCONTRADA`, `REGRA_AMBIGUA` e
+`REGRA_SOBREPOSTA`.
+
+O endpoint `/preparar` aceita v1.1 e persiste em JSONB o payload canônico
+completo, o resumo e os avisos em uma nova sessão `PENDENTE`. O token é retornado
+somente nessa resposta; apenas seu digest é armazenado. Preparações repetidas do
+mesmo arquivo criam UUIDs e credenciais independentes. O fluxo v1.0 continua
+validando, preparando e confirmando normalmente.
+
+O payload mantém os dados normalizados completos porque eles são a entrada da
+revalidação futura. Mantém também as operações completas para registrar a
+classificação produzida na preparação e permitir sua auditoria; resumo e avisos
+ficam nas colunas próprias da sessão. Antes do `flush`, o serviço verifica que a
+versão, as abas, as operações e o resumo são coerentes entre si.
+
+Falhas de serialização, criação ou `flush`, e falhas controladas antes de o
+`commit` terminar, são revertidas pela transação e recebem resposta genérica.
+Uma perda de comunicação durante o `commit` pode ter resultado desconhecido se
+o PostgreSQL já o confirmou; a resposta permanece genérica e não afirma que o
+rollback desfez uma transação já confirmada.

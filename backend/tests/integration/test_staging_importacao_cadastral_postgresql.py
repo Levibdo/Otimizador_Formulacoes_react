@@ -28,7 +28,7 @@ from schemas.importacao_cadastral import ConfirmacaoImportacaoRequest
 
 
 def planilha_valida():
-    workbook = load_workbook(io.BytesIO(gerar_template_cadastral()))
+    workbook = load_workbook(io.BytesIO(gerar_template_cadastral("1.0")))
     for aba in ("MATERIAS_PRIMAS", "NUTRIENTES", "COMPOSICAO_NUTRICIONAL", "PRECOS_MP"):
         ws = workbook[aba]
         if ws.max_row > 1:
@@ -315,7 +315,7 @@ def test_payload_canonico_faz_round_trip_sem_perda_semantica():
             {"linha": 2, "acao": "CRIAR", "materia_prima_codigo": "MP_001", "preco_kg": "0.000000", "vigencia_inicio": "2026-09-25", "vigencia_fim": None},
         ],
     }
-    reconstruido = _xlsx_do_payload({"dados": dados})
+    reconstruido = _xlsx_do_payload({"versao": "1.0", "dados": dados})
     resultado = parsear_planilha_cadastral(reconstruido, "payload-canonico.xlsx")
     assert resultado["dados"] == dados
 
@@ -460,7 +460,7 @@ def test_resultado_truncado_persistido_e_retornado_sao_identicos(
 
 
 def planilha_operacoes(mps=(), nutrientes=(), composicoes=(), precos=()):
-    workbook = load_workbook(io.BytesIO(gerar_template_cadastral()))
+    workbook = load_workbook(io.BytesIO(gerar_template_cadastral("1.0")))
     for aba in ("MATERIAS_PRIMAS", "NUTRIENTES", "COMPOSICAO_NUTRICIONAL", "PRECOS_MP"):
         ws = workbook[aba]
         if ws.max_row > 1:

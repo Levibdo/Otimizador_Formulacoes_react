@@ -24,7 +24,7 @@ from services.staging_importacao_cadastral import preparar_sessao, serializar_ca
 
 
 def planilha_valida():
-    workbook = load_workbook(io.BytesIO(gerar_template_cadastral()))
+    workbook = load_workbook(io.BytesIO(gerar_template_cadastral("1.0")))
     for aba in ("MATERIAS_PRIMAS", "NUTRIENTES", "COMPOSICAO_NUTRICIONAL", "PRECOS_MP"):
         ws = workbook[aba]
         if ws.max_row > 1:
@@ -218,3 +218,15 @@ def test_token_nao_aparece_na_representacao_do_model(client, db):
     ).json()
     sessao = db.scalar(select(SessaoImportacaoCadastral))
     assert preparada["token_confirmacao"] not in repr(sessao)
+
+
+def test_preparar_v11_vazio_cria_sessao_pendente(client, db):
+    resposta = client.post(
+        "/api/v1/importacoes-cadastrais/preparar",
+        files={"arquivo": ("regulatorio.xlsx", gerar_template_cadastral("1.1"))},
+    )
+    assert resposta.status_code == 201, resposta.text
+    assert resposta.json()["versao"] == "1.1"
+    sessao = db.scalar(select(SessaoImportacaoCadastral))
+    assert sessao.status == "PENDENTE"
+    assert sessao.payload_normalizado["versao"] == "1.1"

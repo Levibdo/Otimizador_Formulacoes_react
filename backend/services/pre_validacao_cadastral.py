@@ -1,13 +1,18 @@
 from collections import defaultdict
+import io
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
+from openpyxl import load_workbook
 
 from models import ComposicaoMateriaPrima, MateriaPrima, Nutriente, PrecoMateriaPrima
-from services.planilha_cadastral import ABAS, parsear_planilha_cadastral
+from services.planilha_cadastral import (
+    ABAS, gerar_template_cadastral, parsear_planilha_cadastral,
+)
+from services.pre_validacao_regulatoria import validar_regulatorio
 
 
 MAX_DIAGNOSTICOS_RESPOSTA = 200
@@ -25,7 +30,14 @@ def _diagnostico(severidade, aba, mensagem, linha=None, coluna=None, codigo=None
     }
 
 
-def _resumo_vazio():
+def _resumo_vazio(versao="1.0"):
+    abas = (
+        ("LEIA_ME", "MATERIAS_PRIMAS", "NUTRIENTES", "CATEGORIAS_PRODUTO",
+         "COMPONENTES_REGULATORIOS", "COMPOSICAO_NUTRICIONAL", "PRECOS_MP",
+         "COMPOSICAO_COMPONENTES_MP", "REGRAS_REGULATORIAS_MP",
+         "REGRAS_REGULATORIAS_COMPONENTE")
+        if versao == "1.1" else ABAS
+    )
     return {
         aba: {
             "criar": 0,
@@ -35,7 +47,7 @@ def _resumo_vazio():
             "avisos": 0,
             "erros": 0,
         }
-        for aba in (*ABAS, "GERAL")
+        for aba in (*abas, "GERAL")
     }
 
 
@@ -128,7 +140,14 @@ def _consultar_estado(db: Session, dados):
 
 
 def _finalizar(versao, digest, dados, diagnosticos, propostas, erros_por_linha):
-    ordem_abas = {aba: indice for indice, aba in enumerate((*ABAS, "GERAL"))}
+    abas = (
+        ("LEIA_ME", "MATERIAS_PRIMAS", "NUTRIENTES", "CATEGORIAS_PRODUTO",
+         "COMPONENTES_REGULATORIOS", "COMPOSICAO_NUTRICIONAL", "PRECOS_MP",
+         "COMPOSICAO_COMPONENTES_MP", "REGRAS_REGULATORIAS_MP",
+         "REGRAS_REGULATORIAS_COMPONENTE")
+        if versao == "1.1" else ABAS
+    )
+    ordem_abas = {aba: indice for indice, aba in enumerate((*abas, "GERAL"))}
     diagnosticos = sorted(
         diagnosticos,
         key=lambda item: (
@@ -148,7 +167,7 @@ def _finalizar(versao, digest, dados, diagnosticos, propostas, erros_por_linha):
             item["linha"],
         ),
     )
-    resumo = _resumo_vazio()
+    resumo = _resumo_vazio(versao)
     operacoes = []
     for proposta in propostas:
         if (proposta["aba"], proposta["linha"]) in erros_por_linha:
@@ -514,6 +533,117 @@ def pre_validar_planilha_cadastral_completo(
     digest_arquivo: str | None = None,
 ) -> tuple[dict, dict]:
     """Retorna dados internos somente para staging; nunca deve ser resposta HTTP."""
+    return _pre_validar_planilha_cadastral(
+        conteudo, nome_arquivo, db, digest_arquivo
+    )
+
+
+# O caminho legado permanece isolado; o dispatcher v1.1 combina seu resultado
+# com o estado projetado regulatório sem adicionar objetos à sessão.
+_pre_validar_planilha_cadastral_v1_0 = _pre_validar_planilha_cadastral
+
+
+def _xlsx_v1_0_dos_dados(dados):
+    workbook = load_workbook(io.BytesIO(gerar_template_cadastral("1.0")))
+    colunas = {
+        "MATERIAS_PRIMAS": ("acao", "codigo", "nome", "ativa"),
+        "NUTRIENTES": ("acao", "codigo", "nome", "unidade"),
+        "COMPOSICAO_NUTRICIONAL": ("acao", "materia_prima_codigo", "nutriente_codigo", "valor"),
+        "PRECOS_MP": ("acao", "materia_prima_codigo", "preco_kg", "vigencia_inicio", "vigencia_fim"),
+    }
+    for aba, campos in colunas.items():
+        ws = workbook[aba]
+        if ws.max_row > 1:
+            ws.delete_rows(2, ws.max_row - 1)
+        for item in sorted(dados[aba], key=lambda valor: valor["linha"]):
+            for coluna, campo in enumerate(campos, 1):
+                valor = item.get(campo)
+                if campo == "ativa" and isinstance(valor, bool):
+                    valor = "SIM" if valor else "NÃO"
+                ws.cell(item["linha"], coluna, valor)
+    saida = io.BytesIO()
+    workbook.save(saida)
+    return saida.getvalue()
+
+
+def _pre_validar_planilha_cadastral(conteudo, nome_arquivo, db, digest_arquivo=None):
+    estrutural = parsear_planilha_cadastral(conteudo, nome_arquivo)
+    if estrutural["versao"] != "1.1":
+        return _pre_validar_planilha_cadastral_v1_0(
+            conteudo, nome_arquivo, db, digest_arquivo
+        )
+    digest = digest_arquivo or sha256(conteudo).hexdigest()
+    diagnosticos = [
+        item for item in estrutural["diagnosticos"]
+        if not (
+            item["severidade"] == "AVISO"
+            and "deverá existir no banco na pré-validação" in item["mensagem"]
+        )
+    ]
+    erros_por_linha = {
+        (item["aba"], item["linha"]) for item in diagnosticos
+        if item["severidade"] == "ERRO" and item["aba"] and item["linha"] is not None
+    }
+    abas_regulatorias = {
+        "CATEGORIAS_PRODUTO", "COMPONENTES_REGULATORIOS",
+        "COMPOSICAO_COMPONENTES_MP", "REGRAS_REGULATORIAS_MP",
+        "REGRAS_REGULATORIAS_COMPONENTE",
+    }
+    for diagnostico in diagnosticos:
+        if diagnostico["aba"] in abas_regulatorias and "duplicad" in diagnostico["mensagem"].lower():
+            diagnostico["codigo"] = "CHAVE_DUPLICADA"
+    for aba in abas_regulatorias:
+        por_chave = defaultdict(list)
+        for item in estrutural["dados"].get(aba, []):
+            if aba in {"CATEGORIAS_PRODUTO", "COMPONENTES_REGULATORIOS"}:
+                chave = (item.get("codigo"),)
+            elif aba == "COMPOSICAO_COMPONENTES_MP":
+                chave = (item.get("materia_prima_codigo"), item.get("componente_codigo"),
+                         item.get("data_referencia"))
+            else:
+                chave = (item.get("categoria_codigo"),
+                         item.get("materia_prima_codigo") or item.get("componente_codigo"),
+                         item.get("vigencia_inicio"), item.get("vigencia_fim"))
+            por_chave[chave].append(item)
+        for itens in por_chave.values():
+            if len(itens) > 1:
+                erros_por_linha.update((aba, item["linha"]) for item in itens)
+            if len({item.get("acao") for item in itens}) > 1:
+                for item in itens:
+                    _adicionar_diagnostico(
+                        diagnosticos, erros_por_linha, "ERRO", aba,
+                        "Ações conflitantes para a mesma identidade no lote.",
+                        item["linha"], "ACAO", "ACAO_CONFLITANTE",
+                    )
+    _, internos_base = _pre_validar_planilha_cadastral_v1_0(
+        _xlsx_v1_0_dos_dados(estrutural["dados"]), "base-v1.0.xlsx", db
+    )
+    diagnosticos.extend(internos_base["diagnosticos"])
+    erros_por_linha.update({
+        (item["aba"], item["linha"]) for item in internos_base["diagnosticos"]
+        if item["severidade"] == "ERRO" and item["aba"] and item["linha"] is not None
+    })
+    propostas = list(internos_base["operacoes"])
+    validar_regulatorio(
+        db, estrutural["dados"], diagnosticos, erros_por_linha, propostas
+    )
+    return _finalizar(
+        "1.1", digest, estrutural["dados"], diagnosticos, propostas, erros_por_linha
+    )
+
+
+def pre_validar_planilha_cadastral(
+    conteudo: bytes, nome_arquivo: str, db: Session, digest_arquivo: str | None = None
+) -> dict:
+    resposta, _ = _pre_validar_planilha_cadastral(
+        conteudo, nome_arquivo, db, digest_arquivo
+    )
+    return resposta
+
+
+def pre_validar_planilha_cadastral_completo(
+    conteudo: bytes, nome_arquivo: str, db: Session, digest_arquivo: str | None = None
+) -> tuple[dict, dict]:
     return _pre_validar_planilha_cadastral(
         conteudo, nome_arquivo, db, digest_arquivo
     )
