@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from openpyxl import load_workbook
 import pytest
-from sqlalchemy import event, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -129,63 +129,25 @@ def test_staging_v11_postgresql_modifica_somente_sessao(pg_client, postgres_app)
     assert "payload" not in consulta.text.lower()
 
 
-def test_confirmacao_v11_postgresql_nao_altera_estado(pg_client, postgres_app):
+def test_credenciais_invalidas_v11_nao_alteram_estado(pg_client, postgres_app):
     _, engine, _ = postgres_app
     antes = snapshot_cadastral(engine)
     _, preparada = preparar(pg_client)
     caminho = f'/api/v1/importacoes-cadastrais/{preparada["sessao_id"]}/confirmar'
-    with engine.connect() as conn:
-        xmin_antes = conn.scalar(text(
-            "SELECT xmin::text FROM sessoes_importacao_cadastral "
-            "WHERE uuid_publico=:id"
-        ), {"id": preparada["sessao_id"]})
 
-    comandos = []
-    def registrar_sql(conn, cursor, statement, parameters, context, executemany):
-        comandos.append(statement.lower())
-    event.listen(engine, "before_cursor_execute", registrar_sql)
-    try:
-        invalida = pg_client.post(caminho, json={"token": "incorreto"})
-        ausente = pg_client.post(
-            f"/api/v1/importacoes-cadastrais/{uuid4()}/confirmar",
-            json={"token": preparada["token_confirmacao"]},
-        )
-        primeira = pg_client.post(
-            caminho, json={"token": preparada["token_confirmacao"]}
-        )
-        segunda = pg_client.post(
-            caminho, json={"token": preparada["token_confirmacao"]}
-        )
-    finally:
-        event.remove(engine, "before_cursor_execute", registrar_sql)
-
+    invalida = pg_client.post(caminho, json={"token": "incorreto"})
+    ausente = pg_client.post(
+        f"/api/v1/importacoes-cadastrais/{uuid4()}/confirmar",
+        json={"token": preparada["token_confirmacao"]},
+    )
     assert invalida.status_code == ausente.status_code == 404
     assert invalida.json() == ausente.json()
-    assert primeira.status_code == segunda.status_code == 409
-    assert primeira.json() == segunda.json()
-    assert primeira.json()["detail"]["codigo"] == "CONFIRMACAO_V11_NAO_DISPONIVEL"
     assert snapshot_cadastral(engine) == antes
     with Session(engine) as db:
         sessao = db.scalar(select(SessaoImportacaoCadastral))
         assert sessao.status == "PENDENTE"
         assert sessao.resultado is None
         assert sessao.confirmado_em is None
-        assert sessao.token_hash
-    with engine.connect() as conn:
-        xmin_depois = conn.scalar(text(
-            "SELECT xmin::text FROM sessoes_importacao_cadastral "
-            "WHERE uuid_publico=:id"
-        ), {"id": preparada["sessao_id"]})
-    assert xmin_depois == xmin_antes
-    sql = "\n".join(comandos)
-    assert "lock table" not in sql
-    for tabela in (
-        "materias_primas", "nutrientes", "composicoes_materias_primas",
-        "precos_materias_primas", "categorias_produto",
-        "componentes_regulatorios", "composicoes_componentes_mp",
-        "regras_regulatorias",
-    ):
-        assert tabela not in sql
 
 
 def test_duas_preparacoes_v11_postgresql_sao_independentes(pg_client, postgres_app):

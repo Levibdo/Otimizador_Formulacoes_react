@@ -1,5 +1,6 @@
 import io
 from datetime import timedelta
+from decimal import Decimal
 from hashlib import sha256
 
 import pytest
@@ -13,6 +14,10 @@ from sqlalchemy.pool import StaticPool
 from db.base import Base
 from db.session import get_db
 from models import MateriaPrima, SessaoImportacaoCadastral
+from models.regulatorio import (
+    CategoriaProduto, ComponenteRegulatorio, ComposicaoComponenteMP,
+    RegraRegulatoria,
+)
 from routers.importacoes_cadastrais import router
 from services.confirmacao_importacao_cadastral import _xlsx_do_payload
 from services.planilha_cadastral import gerar_template_cadastral, parsear_planilha_cadastral
@@ -103,24 +108,66 @@ def test_duas_preparacoes_v11_criam_sessoes_e_credenciais_distintas(client, db):
     assert sessoes[0].payload_normalizado == sessoes[1].payload_normalizado
     assert sessoes[0].token_hash != sessoes[1].token_hash
 
-def test_confirmacao_v11_autentica_antes_de_bloquear_fluxo(client, db, monkeypatch):
-    preparada = client.post("/api/v1/importacoes-cadastrais/preparar", files={"arquivo": ("regulatorio.xlsx", planilha_v11())}).json()
-    import services.confirmacao_importacao_cadastral as modulo
-    def proibido(*args, **kwargs):
-        raise AssertionError("não deve bloquear ou revalidar cadastros v1.1")
-    monkeypatch.setattr(modulo, "_bloquear_cadastros", proibido)
-    monkeypatch.setattr(modulo, "pre_validar_planilha_cadastral_completo", proibido)
+def test_confirmacao_v11_autentica_aplica_e_e_idempotente(client, db, monkeypatch):
+    preparada = client.post(
+        "/api/v1/importacoes-cadastrais/preparar",
+        files={"arquivo": ("regulatorio.xlsx", planilha_v11())},
+    ).json()
     caminho = f'/api/v1/importacoes-cadastrais/{preparada["sessao_id"]}/confirmar'
     invalida = client.post(caminho, json={"token": "token-invalido"})
     assert invalida.status_code == 404
-    assert invalida.json() == {"detail": "Sessão ou credencial de confirmação inválida."}
-    respostas = [client.post(caminho, json={"token": preparada["token_confirmacao"]}) for _ in range(2)]
-    assert [item.status_code for item in respostas] == [409, 409]
-    assert respostas[0].json() == respostas[1].json() == {"detail": {"codigo": "CONFIRMACAO_V11_NAO_DISPONIVEL", "mensagem": "A confirmação do contrato 1.1 ainda não está disponível."}}
+    assert invalida.json() == {
+        "detail": "Sessão ou credencial de confirmação inválida."
+    }
+
+    import services.confirmacao_importacao_cadastral as modulo
+    monkeypatch.setattr(
+        modulo.func, "clock_timestamp", lambda: modulo.func.current_timestamp()
+    )
+    resultado_original = modulo._resultado
+    monkeypatch.setattr(
+        modulo, "_resultado",
+        lambda sessao, validacao, operacoes, confirmado_em: resultado_original(
+            sessao, validacao, operacoes,
+            confirmado_em.replace(tzinfo=modulo.timezone.utc),
+        ),
+    )
+    primeira = client.post(
+        caminho, json={"token": preparada["token_confirmacao"]}
+    )
+    assert primeira.status_code == 200, primeira.text
+
+    def proibido(*args, **kwargs):
+        raise AssertionError("confirmação repetida não deve bloquear ou revalidar")
+    monkeypatch.setattr(modulo, "_bloquear_cadastros", proibido)
+    monkeypatch.setattr(
+        modulo, "pre_validar_planilha_cadastral_completo", proibido
+    )
+    segunda = client.post(
+        caminho, json={"token": preparada["token_confirmacao"]}
+    )
+    assert segunda.status_code == 200
+    assert segunda.json() == primeira.json()
+    assert primeira.json()["status"] == "CONFIRMADA"
+    assert all(
+        ":" in codigo for codigo in primeira.json()["codigos_afetados"]
+    )
+
     sessao = db.scalar(select(SessaoImportacaoCadastral))
-    assert sessao.status == "PENDENTE"
-    assert sessao.resultado is None
-    assert db.scalar(select(func.count()).select_from(MateriaPrima)) == 0
+    assert sessao.status == "CONFIRMADA"
+    assert sessao.resultado == primeira.json()
+    assert db.scalar(select(func.count()).select_from(MateriaPrima)) == 1
+    assert db.scalar(select(func.count()).select_from(CategoriaProduto)) == 1
+    assert db.scalar(select(func.count()).select_from(ComponenteRegulatorio)) == 1
+    composicoes = list(db.scalars(select(ComposicaoComponenteMP)))
+    assert [item.situacao for item in composicoes] == [
+        "INFORMADO", "DESCONHECIDO", "AUSENTE_CONFIRMADO"
+    ]
+    assert [item.concentracao for item in composicoes] == [
+        Decimal("1.230000"), None, Decimal("0")
+    ]
+    assert db.scalar(select(func.count()).select_from(RegraRegulatoria)) == 2
+
 
 def test_falha_de_serializacao_v11_nao_cria_sessao(client, db, monkeypatch):
     import services.staging_importacao_cadastral as modulo
@@ -281,3 +328,114 @@ def test_reconstrucao_v10_preserva_cinco_abas_e_booleano():
     reparsed = parsear_planilha_cadastral(conteudo, "canonico-v10.xlsx")
     assert reparsed["dados"] == payload["dados"]
     assert reparsed["dados"]["MATERIAS_PRIMAS"][0]["ativa"] is False
+
+
+def test_resultado_v11_trunca_identidades_externas_deterministicamente():
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from services.confirmacao_importacao_cadastral import _resultado
+
+    operacoes = [
+        {
+            "aba": "CATEGORIAS_PRODUTO", "linha": indice + 2,
+            "codigo": f"CAT_TRUNC_{indice:04d}", "resultado": "CRIAR",
+        }
+        for indice in range(510)
+    ]
+    resumo = {
+        "CATEGORIAS_PRODUTO": {
+            "criar": 510, "atualizar": 0, "desativar": 0,
+            "sem_alteracao": 0, "erros": 0, "avisos": 0,
+        },
+        "GERAL": {
+            "criar": 510, "atualizar": 0, "desativar": 0,
+            "sem_alteracao": 0, "erros": 0, "avisos": 0,
+        },
+    }
+    sessao = SimpleNamespace(
+        versao_contrato="1.1", uuid_publico="00000000-0000-0000-0000-000000000001",
+        arquivo_sha256="0" * 64,
+    )
+    resultado = _resultado(
+        sessao, {"resumo": resumo, "diagnosticos": []}, operacoes,
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    assert resultado["resultado_truncado"] is True
+    assert len(resultado["codigos_afetados"]) == 500
+    assert resultado["codigos_afetados"] == sorted(resultado["codigos_afetados"])
+    assert resultado["codigos_afetados"][0] == "CATEGORIAS_PRODUTO:CAT_TRUNC_0000"
+
+
+def test_sessao_v11_falhou_retorna_antes_dos_locks(client, db, monkeypatch):
+    preparada = client.post(
+        "/api/v1/importacoes-cadastrais/preparar",
+        files={"arquivo": ("regulatorio.xlsx", planilha_v11())},
+    ).json()
+    sessao = db.scalar(select(SessaoImportacaoCadastral))
+    sessao.status = "FALHOU"
+    sessao.resultado = {"tipo": "ERRO_TECNICO"}
+    db.commit()
+
+    import services.confirmacao_importacao_cadastral as modulo
+    monkeypatch.setattr(
+        modulo, "_bloquear_cadastros",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("sessão FALHOU não deve adquirir locks cadastrais")
+        ),
+    )
+    resposta = client.post(
+        f'/api/v1/importacoes-cadastrais/{preparada["sessao_id"]}/confirmar',
+        json={"token": preparada["token_confirmacao"]},
+    )
+    assert resposta.status_code == 409
+    assert db.scalar(select(SessaoImportacaoCadastral)).status == "FALHOU"
+
+
+def test_identidades_externas_v11_sao_canonicas_e_inequivocas():
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from services.confirmacao_importacao_cadastral import _resultado
+
+    codigos = [
+        ("CATEGORIAS_PRODUTO", "CAT_0001"),
+        ("COMPONENTES_REGULATORIOS", "COMP_0001"),
+        ("COMPOSICAO_COMPONENTES_MP", "MP_0001/COMP_0001/2026-01-02"),
+        ("REGRAS_REGULATORIAS_MP", "CAT_0001/MP_0001/2026-01-01/2026-12-31"),
+        ("REGRAS_REGULATORIAS_MP", "CAT_0001/MP_0001//"),
+        ("REGRAS_REGULATORIAS_COMPONENTE", "CAT_0001/COMP_0001//2026-12-31"),
+    ]
+    operacoes = [
+        {"aba": aba, "linha": indice + 2, "codigo": codigo, "resultado": "CRIAR"}
+        for indice, (aba, codigo) in enumerate(codigos)
+    ]
+    operacoes.append({
+        "aba": "CATEGORIAS_PRODUTO", "linha": 99,
+        "codigo": "CAT_SEM_0000", "resultado": "SEM_ALTERACAO",
+    })
+    resumo = {
+        aba: {
+            "criar": sum(1 for item in operacoes if item["aba"] == aba and item["resultado"] == "CRIAR"),
+            "atualizar": 0, "desativar": 0,
+            "sem_alteracao": sum(1 for item in operacoes if item["aba"] == aba and item["resultado"] == "SEM_ALTERACAO"),
+            "erros": 0, "avisos": 0,
+        }
+        for aba, _ in codigos
+    }
+    resultado = _resultado(
+        SimpleNamespace(
+            versao_contrato="1.1",
+            uuid_publico="00000000-0000-0000-0000-000000000002",
+            arquivo_sha256="1" * 64,
+        ),
+        {"resumo": resumo, "diagnosticos": []}, operacoes,
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    assert resultado["codigos_afetados"] == sorted(
+        f"{aba}:{codigo}" for aba, codigo in codigos
+    )
+    assert len(set(resultado["codigos_afetados"])) == len(codigos)
+    assert all("CAT_SEM_0000" not in item for item in resultado["codigos_afetados"])
+    assert resultado["resultado_truncado"] is False
+    assert resultado["totais"] == {
+        "criar": 6, "atualizar": 0, "desativar": 0, "sem_alteracao": 1,
+    }

@@ -186,14 +186,10 @@ matérias-primas, nutrientes, composições ou preços.
 A decisão de vencimento usa o relógio do PostgreSQL. Consultar uma sessão
 `PENDENTE` vencida pode alterar exclusivamente seu estado para `EXPIRADA`;
 consultas seguintes são idempotentes. Sessões `CONFIRMADA`, `EXPIRADA` ou
-`FALHOU` são finais e nunca expiram nem retornam a `PENDENTE`. Uma confirmação
-futura deverá gravar `confirmado_em` e `resultado` na mesma transição. Uma falha
-futura deverá guardar apenas um diagnóstico seguro em `resultado`.
-
-O contrato 1.1 pode ser preparado e consultado, mas sua confirmação permanece
-bloqueada. Depois de bloquear a sessão e autenticar o token, o endpoint retorna
-HTTP 409 com `CONFIRMACAO_V11_NAO_DISPONIVEL`, antes de revalidar ou bloquear
-tabelas cadastrais. A sessão permanece `PENDENTE`, com o token ainda válido.
+`FALHOU` são finais e nunca expiram nem
+retornam a `PENDENTE`. A confirmação grava `confirmado_em` e `resultado` na
+mesma transição dos cadastros. Uma falha guarda apenas um diagnóstico seguro em
+`resultado`.
 
 ## Confirmação transacional
 
@@ -202,19 +198,53 @@ tabelas cadastrais. A sessão permanece `PENDENTE`, com o token ainda válido.
 tempo constante e nunca é persistido ou retornado. UUID inexistente e token
 incorreto recebem a mesma resposta genérica.
 
-A confirmação bloqueia, nesta ordem, `nutrientes`, `materias_primas`,
-`composicoes_materias_primas` e `precos_materias_primas` em modo
-`SHARE ROW EXCLUSIVE`. O bloqueio serializa escritores durante a revalidação e a
-aplicação, protegendo especialmente intervalos de preços, que não possuem uma
-constraint de exclusão. O custo é reduzir temporariamente a concorrência de
-escrita cadastral; consultas permanecem disponíveis.
+A confirmação v1.0 bloqueia, nesta ordem, `nutrientes`, `materias_primas`,
+`composicoes_materias_primas` e `precos_materias_primas`. A v1.1 mantém esses
+quatro primeiros locks e acrescenta, na ordem, `categorias_produto`,
+`componentes_regulatorios`, `composicoes_componentes_mp` e
+`regras_regulatorias`. Todos usam `SHARE ROW EXCLUSIVE`. O bloqueio serializa
+escritores durante a revalidação e a aplicação; consultas permanecem
+disponíveis.
 
 O XLSX não é armazenado nem reutilizado. O servidor reconstrói o contrato a
 partir do payload canônico, revalida códigos e regras contra o PostgreSQL e
-aplica, em transação única, nutrientes, matérias-primas, composições, preços e,
-por último, desativações. Revalidação conflitante marca a sessão como `FALHOU`
-sem alterar cadastros. Falha técnica desfaz primeiro toda a transação e registra
-um diagnóstico genérico em transação separada.
+compara semanticamente versão, dados, operações e resumo com o staging. Qualquer
+divergência retorna `REVALIDACAO_DIVERGENTE`, desfaz a transação e marca a sessão
+como `FALHOU` em transação separada, sem adaptar a classificação ao estado novo.
+Falha técnica também desfaz primeiro toda a transação e registra apenas um
+diagnóstico genérico em transação separada.
+
+Na v1.1, a aplicação usa mapas por código e `flush` sem commit para resolver
+entidades criadas no mesmo lote. A ordem é nutrientes, matérias-primas,
+categorias, componentes, composição nutricional, preços, composições
+regulatórias, regras e desativações finais. Na revisão de uma regra, a
+predecessora é desativada e enviada ao banco antes da inserção da sucessora; a
+sucessora recebe a revisão seguinte e referencia a anterior. Nenhuma operação
+remove histórico.
+
+O resultado identifica afetados como `ABA:identidade`, usando a identidade
+canônica já produzida pela pré-validação. Assim, categorias e componentes usam
+seu código, composições usam matéria-prima, componente e data, e regras incluem
+categoria, tipo de alvo, alvo e vigência. A lista é ordenada, limitada a 500
+itens e acompanhada de `resultado_truncado`. `SEM_ALTERACAO` entra nos totais,
+mas não nessa lista e não executa `UPDATE`.
+
+Exemplos canônicos são `CATEGORIAS_PRODUTO:CAT_0001`,
+`COMPONENTES_REGULATORIOS:COMP_0001`,
+`COMPOSICAO_COMPONENTES_MP:MP_0001/COMP_0001/2026-01-02`,
+`REGRAS_REGULATORIAS_MP:CAT_0001/MP_0001/2026-01-01/2026-12-31` e
+`REGRAS_REGULATORIAS_COMPONENTE:CAT_0001/COMP_0001//2026-12-31`. O nome da
+aba distingue o tipo de alvo. Datas ISO e campos vazios em posições fixas
+distinguem vigências abertas. Códigos aceitos não contêm `:` nem `/`, evitando
+colisão com os separadores.
+
+Se uma falha ocorre antes de o commit ser enviado e a conexão continua válida,
+o lote é revertido e a API tenta marcar a sessão como `FALHOU`. Se a conexão é
+invalidada durante o commit, o resultado pode ser desconhecido: a resposta é
+genérica, a API não inicia uma compensação nem marca `FALHOU` cegamente, e uma
+consulta posterior deve revelar o estado efetivamente confirmado pelo banco.
+Sequências PostgreSQL podem manter lacunas após rollback; a atomicidade exigida
+é das linhas e alterações cadastrais.
 
 Uma sessão `CONFIRMADA` com o token correto retorna o resultado persistido sem
 reaplicar operações. Assim, confirmações repetidas e concorrentes da mesma
